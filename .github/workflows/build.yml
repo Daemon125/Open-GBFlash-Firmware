@@ -1,0 +1,76 @@
+name: build
+
+# Every push and pull request. The point is that a broken tree is caught before
+# anyone tags it, not while a release is being cut.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# The toolchain the firmware was built and hardware-tested with. Pinned because
+# a different gcc can produce a different image from identical source, and the
+# image people install should be the one that was tested. Bumping this is a
+# deliberate act: change it here, rebuild, and re-run the hardware gates.
+env:
+  ARM_TOOLCHAIN: '15.3.Rel1'
+  ARM_GCC_VERSION: '15.3.1'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The LK firmware skeleton is a submodule. Without this the build
+          # stops on missing headers.
+          submodules: recursive
+
+      - name: Install the pinned cross toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_TOOLCHAIN }}
+
+      - name: The toolchain is the one this firmware was tested with
+        run: |
+          set -e
+          GOT=$(arm-none-eabi-gcc -dumpversion)
+          echo "  arm-none-eabi-gcc $GOT"
+          arm-none-eabi-gcc --version | head -1
+          if [ "$GOT" != "${{ env.ARM_GCC_VERSION }}" ]; then
+            echo "::error::built with gcc $GOT, expected ${{ env.ARM_GCC_VERSION }}."
+            echo "::error::A different toolchain can produce a different image."
+            echo "::error::Bump ARM_TOOLCHAIN and ARM_GCC_VERSION together, then re-test on hardware."
+            exit 1
+          fi
+
+      - name: Record the host tools
+        run: |
+          gcc --version | head -1
+          python3 --version
+
+      # No pip step: the host suite and mkimage.py import the standard library
+      # only. If that ever stops being true this job fails rather than silently
+      # picking up whatever the runner happens to have.
+      - name: Offline test suite
+        run: make host-test
+
+      - name: Build
+        run: make
+
+      - name: Every build-time knob still compiles
+        run: make knobcheck
+
+      - name: Package
+        run: make dist
+
+      - name: Report what was built
+        run: |
+          echo "fw.bin   $(sha256sum build/fw.bin | cut -d' ' -f1)"
+          unzip -p dist/fw_GBFlash.zip fw.ini
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: open-gbflash-${{ github.sha }}
+          path: |
+            dist/fw_GBFlash.zip
+            hw_GBFlash.py

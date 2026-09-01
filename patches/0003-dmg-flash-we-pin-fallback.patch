@@ -1,0 +1,57 @@
+carried patch 0003 -- lk_dmg_flash_write_byte: an unset FLASH_WE_PIN must
+                      still strobe something
+
+WHAT IT CHANGES
+    lk_dmg_flash_write_byte() (LK.c:1257-1271) selects the write strobe from
+    _lk_var8[LK_VAR8_FLASH_WE_PIN] with three `if / else if` arms and NO else.
+    A value outside {1,2,3} -- and 0 is the power-on value of that cell --
+    drives the address and the data, waits 200 ns, and then issues no strobe
+    at all. This adds the else: fall back to /WR.
+
+WHY IT IS NOT OPTIONAL
+
+    src/cart.c:552-556 already does this, deliberately: "treats an unset
+    FLASH_WE_PIN as /WR". Taking LK.c unmodified retires that guard.
+
+    The failure is the silent kind again. The address and data are driven, the
+    command is acknowledged, and nothing reaches the cartridge -- so a flash
+    write "succeeds" and the verify pass reports the cartridge as bad.
+
+    RISK IS LOW AND THE COST IS ONE LINE. The host sets FLASH_WE_PIN in
+    SET_FLASH_CMD before any flash write (LK.c:272, and FlashGBX always sends
+    it), so the arm is not reached in normal operation. It is reached if a
+    flash write is issued before SET_FLASH_CMD, or after a SET_VAR_STATE that
+    restored a zero. Neither is exotic.
+
+WHY IT CANNOT LIVE IN LK_device.h
+    It is control flow inside a function body. There is no macro on the path.
+    Defining FLASH_WE_PIN differently is not possible either -- it is a
+    runtime variable the host writes, not a compile-time constant.
+
+UPSTREAM
+    Trivially proposable and hard to argue with: an else that matches the
+    documented default.
+
+RISK IF IT SILENTLY STOPS APPLYING
+    Dropped DMG flash writes when the host has not set FLASH_WE_PIN.
+    Guarded by FW_LK_PATCH_0003.
+
+--- a/LK.c
++++ b/LK.c
+@@ -1265,12 +1265,16 @@
+ 	} else if (_lk_var8[LK_VAR8_FLASH_WE_PIN] == LK_FLASH_WE_PIN_WR_RESET) {
+ 		PIN_CS2_L();
+ 		PIN_WR_L();
+ 		_delay_400ns();
+ 		PIN_WR_H();
+ 		PIN_CS2_H();
++	} else { // carried patch 0003: unset FLASH_WE_PIN falls back to /WR
++		PIN_WR_L();
++		_delay_400ns();
++		PIN_WR_H();
+ 	}
+ }
+ 
+ void lk_dmg_flash_enable_audio(u8 enable) {
+ 	if (enable == true) {
+ 		PIN_AUDIO_DIR_OUT();

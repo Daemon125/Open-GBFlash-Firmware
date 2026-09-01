@@ -1,0 +1,3 @@
+[submodule "upstream/FlashGBX_LK_Firmware"]
+	path = upstream/FlashGBX_LK_Firmware
+	url = https://github.com/Lesserkuma/FlashGBX_LK_Firmware.git

@@ -1,0 +1,54 @@
+build/
+dist/
+__pycache__/
+*.pyc
+host/__pycache__/
+
+# Build by-products that land at the tree root.
+*.d
+dis.txt
+
+# The working log. Append-only, and later entries supersede earlier ones by
+# thousands of lines, so it reads wrong out of context. Kept on disk.
+results/
+
+# Benchmark package output and its generated test ROMs.
+tools/bench/results/
+tools/bench/roms/
+
+# Save data read off real cartridges during testing. These are dumps of the
+# author's own saves, not test fixtures, and there is no reason to publish them.
+results/bench/*.sav
+
+# Patch conflict leftovers and pre-patch copies. Kept on disk because the
+# vendored LK sources are re-patched against them; not release material.
+*.orig
+*.rej
+
+# Working notes from the port. Useful history, not repo material.
+PLAN.md
+PORT-NOTES.md
+
+# macOS Finder droppings.
+.DS_Store
+
+# Development tooling that only makes sense against this author's own hardware
+# and cartridges: one-off interval sweeps, throughput probes, cartridge dumpers
+# and a flashcart profile for one specific ChisFlash board. None of it is
+# referenced by the Makefile or the README, and a forker cannot use most of it
+# without the same carts sitting on the same desk.
+tools/flashgbx/
+tools/bench_battery.sh
+tools/bench_flash_write.py
+tools/bench_fw.py
+tools/bench_write_path.py
+tools/dmg_wr_margin.sh
+tools/m3d_settle_sweep.sh
+tools/reflash_stress.sh
+tools/dump_dmg.py
+tools/first_cartridge.py
+tools/hw_suite.py
+tools/measure_cart_voltage.py
+tools/mkbenchroms.py
+tools/probe_rtc.py
+tools/transport_bench.py

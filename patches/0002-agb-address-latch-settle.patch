@@ -1,0 +1,134 @@
+carried patch 0002 -- AGB address-latch settle (mismatch M1)
+
+WHAT IT CHANGES
+    Adds one _delay_agb_latch() call after the address latch in each of the
+    five AGB read paths, before the first /RD strobe:
+
+        lk_agb_cart_read_short              LK.c:1554   (Single)
+        lk_agb_cart_read_data               LK.c:1573   (MemCpy)
+        lk_agb_cart_read_data               LK.c:1590   (CPU / Stream)
+        lk_agb_cart_read_data_3d_memory     LK.c:1741
+        lk_dmg_agb_calc_crc32               LK.c:2190   (AGB arm)
+
+WHY IT IS NOT OPTIONAL
+
+    src/cart.c:238-268 is the record. With a cartridge in the slot, every AGB
+    read came back shifted forward by exactly one halfword -- "POKEMON FIRE"
+    read as "KEMON FIREBP", three passes agreeing perfectly. An empty slot
+    cannot show it, because open bus is shifted the same as it is unshifted.
+
+    The cause is the gap between the /CS store that latches the address and
+    the first /RD. Stock spends 29 cycles there BY ACCIDENT: a pcb_ver check,
+    a zero-length early-out and loop setup, none of it written down as a
+    delay. LK.c does not have that accident -- all five paths go
+    PIN_CS_L(); RAW_AGB_DATA_SET(0); RAW_AGB_DATA_DIR_IN(); PIN_RD_L(), three
+    or four stores. So LK.c as shipped reproduces the shifted dump on this
+    board.
+
+    This is silent data corruption on the project's primary use case.
+
+WHY IT IS A PATCH AND NOT A MACRO BODY
+
+    It COULD hide inside RAW_AGB_DATA_DIR_IN(), which happens to be the last
+    macro before the first /RD in all five paths. The draft of the board
+    header did exactly that, and it is the wrong shape: the macro's name says
+    "set the data direction" and says nothing about holding off a strobe. An
+    upstream change that moves DIR_IN earlier, or strobes /RD without calling
+    it, silently reintroduces a bug whose only symptom is a plausible,
+    self-consistent, WRONG dump. tools/lk_upstream_diff.py cannot catch that;
+    it proves a macro exists, not what it protects.
+
+    As a patch, the five sites are named in a diff. If upstream moves any of
+    them the patch fails to apply and the build stops -- a loud failure for a
+    silent bug.
+
+COST
+    32 cycles per address latch. Per read method, because the three latch at
+    different rates:
+        CPU/Stream  once per CHUNK_MAX_LEN (64 B)  ->  0.5 cycles/byte, ~1%
+        MemCpy      once per 4 bytes               ->  8 cycles/byte,  ~13%
+        Single      once per 2 bytes               ->  16 cycles/byte, ~25%
+    NOT a regression: the shipping firmware already pays exactly this
+    (agb_latch_bytes() at main.c:308-315, fw_cart_agb_open()'s BUS_NOPS(32)).
+
+UPSTREAM
+    The honest version is a `_delay_agb_latch()` hook that LK.c calls itself,
+    declared in the template as an empty macro. Worth proposing to Lesserkuma;
+    it would help every board whose cartridges latch slower than the author's,
+    and it would retire this patch.
+
+RISK IF IT SILENTLY STOPS APPLYING
+    Halfword-shifted AGB dumps that look fine. Guarded by FW_LK_PATCH_0002.
+
+--- a/LK.c
++++ b/LK.c
+@@ -1549,12 +1549,13 @@
+ 	RAW_AGB_ADDR_SET(0);
+ 	RAW_AGB_ADDR_DIR_OUT();
+ 	RAW_AGB_ADDR_SET(address);
+ 	PIN_CS_L();
+ 	RAW_AGB_DATA_SET(0); // Set floating lines to 0 instead of mirroring the address
+ 	RAW_AGB_DATA_DIR_IN();
++	_delay_agb_latch(); // carried patch 0002
+ 	PIN_RD_L();
+ 	_delay_100ns();
+ 	u16 data = RAW_AGB_DATA_GET();
+ 	PIN_RD_H();
+ 	PIN_CS_H();
+ 	return data;
+@@ -1568,12 +1569,13 @@
+ 			for (u32 x = 0; x < chunk_len >> 1; x += 2) {
+ 				RAW_AGB_ADDR_DIR_OUT();
+ 				RAW_AGB_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]);
+ 				PIN_CS_L();
+ 				RAW_AGB_DATA_SET(0); // set floating lines to 0 instead of mirroring the address
+ 				RAW_AGB_DATA_DIR_IN();
++				_delay_agb_latch(); // carried patch 0002
+ 				PIN_RD_L();
+ 				_delay_300ns();
+ 				((u16*)data_buffer)[x] = RAW_AGB_DATA_GET();
+ 				PIN_RD_H();
+ 				PIN_RD_L();
+ 				_delay_300ns();
+@@ -1585,12 +1587,13 @@
+ 		} else if (_lk_var8[LK_VAR8_AGB_READ_METHOD] == LK_AGB_READ_METHOD_CPU) { // dump like CPU access on real hardware
+ 			RAW_AGB_ADDR_DIR_OUT();
+ 			RAW_AGB_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]);
+ 			PIN_CS_L();
+ 			RAW_AGB_DATA_SET(0); // set floating areas to 0 instead of mirroring the address
+ 			RAW_AGB_DATA_DIR_IN();
++			_delay_agb_latch(); // carried patch 0002
+ 			for (u32 x = 0; x < chunk_len >> 1; x++) {
+ 				PIN_RD_L();
+ 				_delay_300ns();
+ 				((u16*)data_buffer)[x] = RAW_AGB_DATA_GET();
+ 				PIN_RD_H();
+ 			}
+@@ -1736,12 +1739,13 @@
+ 
+ 	RAW_AGB_ADDR_DIR_OUT();
+ 	RAW_AGB_ADDR_SET(0x1000 >> 1);
+ 	PIN_CS_L();
+ 	RAW_AGB_ADDR_SET(0);
+ 	RAW_AGB_DATA_DIR_IN();
++	_delay_agb_latch(); // carried patch 0002
+ 
+ 	u8 client_ack = LK_CMD_AGB_CART_READ_3D_MEMORY;
+ 
+ 	for (u16 y = 0; y < (u16)(_lk_var16[LK_VAR16_BUFFER_SIZE] / _lk_var16[LK_VAR16_TRANSFER_SIZE]); y++) {
+ 		for (u32 z = 0; z < (_lk_var16[LK_VAR16_TRANSFER_SIZE] >> 1); z++) {
+ 			PIN_RD_L();
+@@ -2185,12 +2189,13 @@
+ 		PIN_RD_H();
+ 	} else { // AGB mode
+ 		RAW_AGB_ADDR_DIR_OUT();
+ 		RAW_AGB_ADDR_SET(_lk_var32[LK_VAR32_ADDRESS]);
+ 		PIN_CS_L();
+ 		RAW_AGB_DATA_DIR_IN();
++		_delay_agb_latch(); // carried patch 0002
+ 		for (u32 x = 0; x < length >> 1; x++) {
+ 			PIN_RD_L();
+ 			_delay_100ns();
+ 			u16 temp = RAW_AGB_DATA_GET();
+ 			checksum = crc32_table[(checksum ^ (temp & 0xFF)) & 0xFF] ^ (checksum >> 8);
+ 			checksum = crc32_table[(checksum ^ (temp >> 8)) & 0xFF] ^ (checksum >> 8);

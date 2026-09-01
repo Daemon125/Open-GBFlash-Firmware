@@ -1,0 +1,108 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+# The toolchain the firmware was built and hardware-tested with. Pinned because
+# a different gcc can produce a different image from identical source, and the
+# image people install should be the one that was tested. Bumping this is a
+# deliberate act: change it here, rebuild, and re-run the hardware gates.
+env:
+  ARM_TOOLCHAIN: '15.3.Rel1'
+  ARM_GCC_VERSION: '15.3.1'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install the pinned cross toolchain
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_TOOLCHAIN }}
+
+      - name: The toolchain is the one this firmware was tested with
+        run: |
+          set -e
+          GOT=$(arm-none-eabi-gcc -dumpversion)
+          echo "  arm-none-eabi-gcc $GOT"
+          arm-none-eabi-gcc --version | head -1
+          if [ "$GOT" != "${{ env.ARM_GCC_VERSION }}" ]; then
+            echo "::error::built with gcc $GOT, expected ${{ env.ARM_GCC_VERSION }}."
+            echo "::error::A different toolchain can produce a different image."
+            echo "::error::Bump ARM_TOOLCHAIN and ARM_GCC_VERSION together, then re-test on hardware."
+            exit 1
+          fi
+
+      - name: Offline test suite
+        run: make host-test
+
+      - name: Build and package
+        run: |
+          make
+          make dist
+
+      # The firmware reports a protocol version to FlashGBX and carries a build
+      # timestamp that decides whether FlashGBX offers to replace it with the
+      # vendor image. Both have been wrong in this tree before: it shipped
+      # reporting L12 while built on an L15 skeleton, and a timestamp that made
+      # FlashGBX offer an "update" back to stock on every launch. A zip whose
+      # contents disagree with the source it was built from is worth failing on.
+      - name: The package agrees with the source it was built from
+        run: |
+          set -e
+          FW_VER_SRC=$(awk '/define FW_VERSION/ {print $3; exit}' include/fw_config.h)
+          FW_TS_SRC=$(sed -n 's/^FW_TIMESTAMP[ ?=]*\([0-9][0-9]*\).*/\1/p' Makefile | head -1)
+          FW_VER_ZIP=$(unzip -p dist/fw_GBFlash.zip fw.ini | awk -F'= *' '/fw_ver/ {print $2}' | tr -d 'L \r')
+          FW_TS_ZIP=$(unzip -p dist/fw_GBFlash.zip fw.ini | awk -F'= *' '/fw_buildts/ {print $2}' | tr -d ' \r')
+          echo "  source: FW_VERSION=$FW_VER_SRC FW_TIMESTAMP=$FW_TS_SRC"
+          echo "  zip   : fw_ver=L$FW_VER_ZIP fw_buildts=$FW_TS_ZIP"
+          [ "$FW_VER_SRC" = "$FW_VER_ZIP" ] || { echo "::error::fw_ver in the zip does not match FW_VERSION"; exit 1; }
+          [ "$FW_TS_SRC" = "$FW_TS_ZIP" ]  || { echo "::error::fw_buildts in the zip does not match FW_TIMESTAMP"; exit 1; }
+          MEMBERS=$(unzip -Z1 dist/fw_GBFlash.zip | sort | tr '\n' ' ')
+          [ "$MEMBERS" = "fw.bin fw.ini " ] || { echo "::error::zip members are '$MEMBERS', expected 'fw.bin fw.ini'"; exit 1; }
+
+      # A release with no changelog entry is a release nobody can read.
+      - name: The changelog mentions this tag
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          grep -q "$V" CHANGELOG.md || { echo "::error::CHANGELOG.md has no entry for $V"; exit 1; }
+
+      - name: Checksums
+        run: |
+          sha256sum dist/fw_GBFlash.zip hw_GBFlash.py > SHA256SUMS
+          unzip -p dist/fw_GBFlash.zip fw.bin > /tmp/fw.bin
+          echo "fw.bin (inside the zip)  $(sha256sum /tmp/fw.bin | cut -d' ' -f1)" >> SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/fw_GBFlash.zip
+            hw_GBFlash.py
+            SHA256SUMS
+          body: |
+            Built by CI with Arm GNU Toolchain ${{ env.ARM_TOOLCHAIN }}
+            (gcc ${{ env.ARM_GCC_VERSION }}), the toolchain this firmware was
+            hardware-tested with. The build fails rather than publishing if that
+            ever differs. Checksums are in `SHA256SUMS`, so a local build with
+            the same toolchain can be compared against this one.
+
+            **Installing**
+
+            1. Put `fw_GBFlash.zip` in `FlashGBX/res/`, replacing the copy there.
+            2. Copy `hw_GBFlash.py` over `FlashGBX/hw_GBFlash.py`.
+            3. Tools > Firmware Updater, holding **U22** while plugging in.
+
+            `hw_GBFlash.py` is required: FlashGBX finds a GBFlash by USB id and
+            will not see this firmware without it. Full instructions, benchmarks
+            and the compatibility list are in the README.

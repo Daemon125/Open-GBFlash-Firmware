@@ -1,0 +1,71 @@
+carried patch 0001 -- AGB save-FLASH: poll the byte back, do not guess a delay
+
+WHAT IT CHANGES
+    lk_agb_cart_write_flash(), the LK_TYPE_FLASH_NON_ATMEL arm. Upstream waits
+    a fixed _delay_us(20) after each programmed byte and then writes the next
+    unlock sequence. This waits for the byte to read back instead.
+
+WHY IT IS NOT OPTIONAL
+
+    This is a bug this project has already shipped, reproduced and measured:
+
+        "a short delay does not fail loudly: the next unlock sequence lands
+         while the chip is still busy, gets swallowed, and the byte after it
+         is written as data instead. 128 KiB of that erased the save to
+         all-zeroes while every command still ACKed."
+        -- src/cart.c:786-800, the comment on fw_cart_agb_sram_program()
+
+    20 us is the TYPICAL byte-program time on these parts, not the maximum.
+    The MX29L010 in the cartridge this firmware was developed against needs
+    longer when the writes come back to back. The failure destroys a save file
+    and reports success, which is the worst combination available.
+
+    Upstream is not being careless -- it is faithfully reproducing the stock
+    firmware. 27 nops in a loop IS _delay_us(1), so stock's `27 x 20` at flash
+    0x6840 and LK.c:1710 are the same source compiled twice. The stock
+    firmware has the same defect.
+
+WHY IT CANNOT LIVE IN LK_device.h
+
+    The delay is a statement inside a function body. No board macro is
+    expanded anywhere near it: _delay_us() is, but redefining _delay_us()
+    would change all 30-odd of its uses, including bus strobe widths where a
+    poll would be catastrophic. There is no hook here and there is no macro
+    whose meaning could be stretched to cover it without breaking something
+    else.
+
+    The poll itself IS in the header, as AGB_SAVE_FLASH_WAIT() -- only the
+    call site has to be patched in.
+
+UPSTREAM
+
+    Worth proposing: read-back polling instead of a fixed delay, or a
+    `_delay_agb_save_flash(addr, want)` hook. A merged upstream fix retires
+    this patch and is worth much more than carrying it.
+
+RISK IF IT SILENTLY STOPS APPLYING
+
+    Silent save corruption on AGB FLASH saves. include/LK_device_ch579.h
+    #errors without -DFW_LK_PATCH_0001, and the Makefile only defines that for
+    patches it actually applied, so "stops applying" is a build failure.
+
+--- a/LK.c
++++ b/LK.c
+@@ -1702,15 +1702,16 @@
+ 	lk_agb_cart_write_flash_byte(0x5555, 0xA0);
+ }
+ void lk_agb_cart_write_flash(u8 flash_type) {
+ 	lk_set_mode(LK_MODE_DMG);
+ 	if (flash_type == LK_TYPE_FLASH_NON_ATMEL) {
+ 		for (u32 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x++) {
++			u16 _lk_wr_addr = (u16)_lk_var32[LK_VAR32_ADDRESS];
+ 			lk_agb_cart_write_flash_program_sequence();
+ 			lk_agb_cart_write_flash_byte(_lk_var32[LK_VAR32_ADDRESS]++, data_buffer[x]);
+-			_delay_us(20);
++			AGB_SAVE_FLASH_WAIT(_lk_wr_addr, data_buffer[x]); // carried patch 0001
+ 		}
+ 	} else {
+ 		for (u32 x = 0; x < _lk_var16[LK_VAR16_TRANSFER_SIZE]; x += 128) {
+ 			lk_agb_cart_write_flash_program_sequence();
+ 			for (u8 y = 0; y < 128; y++) {
+ 				lk_agb_cart_write_flash_byte((u16)(_lk_var32[LK_VAR32_ADDRESS] << 7) | (u16)y, data_buffer[x + y]);

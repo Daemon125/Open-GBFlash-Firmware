@@ -1,0 +1,9 @@
+{
+ "commit": "d034fa32f50979908e4a125fe976bfd247cc12af",
+ "firmware_version": 15,
+ "sha256": {
+  "LK.c": "7db0e53cabe907c2f36813467a10af4247c485aaa542056ec95c4516331b3d2f",
+  "LK.h": "ced2af38c7a01cb6a41e850fed0dbff8b77964aa3b63b0dd1b95e5b301a271d8",
+  "LK_device.h": "04004bb65aae25b91119a0106d7485c2fe548c6e4bd14ca472be0ab2835a2b3c"
+ }
+}
