@@ -280,10 +280,13 @@ Cartridges exercised:
 
 - **Game Boy Advance**: ChisFlash 16 MiB flash cartridge with a 1M FLASH save,
   Pokemon Emerald repro, Super Mario Advance 4, Dragon Ball Z: The Legacy of
-  Goku, and a Shark Tale GBA Video (3D Memory) cartridge
+  Goku, and a Shark Tale GBA Video (3D Memory) cartridge. Super Mario Advance 4
+  is a genuine mask ROM, read on all three methods and on both firmwares to the
+  same md5, and checked against FlashGBX's own ROM database
 - **Game Boy**: ChisFlash MBC3 2 MiB flash cartridge, a generic AliExpress
   flash cartridge, Pokemon Yellow repro, Pokemon Gold, Casper, and Rugrats
-  Time Travelers
+  Time Travelers, the last of these a genuine mask ROM read six times across
+  both firmwares to the same md5
 
 Every read was compared byte for byte against a dump taken with the stock
 firmware, and every write was verified.
@@ -299,9 +302,6 @@ firmware:
 - **MBC1 and MBC2**, the two commonest Game Boy mappers, along with MBC6, MBC7,
   MMM01, HuC-1, HuC-3, TAMA5 and the unlicensed mappers. Only MBC3 and MBC5 have
   been used.
-- **Original Nintendo Game Boy cartridges.** The Game Boy side has been
-  exercised on flash cartridges and repros. The GBA read timings were tuned
-  against a flash cartridge; a mask ROM is the case they have not met.
 - **Game Boy flash cartridges that program through the audio pin** rather than
   the normal write pin.
 - **Mapper-specific save paths** for chips like the one in Kirby Tilt 'n'
