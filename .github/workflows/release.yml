@@ -61,14 +61,31 @@ jobs:
           set -e
           FW_VER_SRC=$(awk '/define FW_VERSION/ {print $3; exit}' include/fw_config.h)
           FW_TS_SRC=$(sed -n 's/^FW_TIMESTAMP[ ?=]*\([0-9][0-9]*\).*/\1/p' Makefile | head -1)
-          FW_VER_ZIP=$(unzip -p dist/fw_GBFlash.zip fw.ini | awk -F'= *' '/fw_ver/ {print $2}' | tr -d 'L \r')
-          FW_TS_ZIP=$(unzip -p dist/fw_GBFlash.zip fw.ini | awk -F'= *' '/fw_buildts/ {print $2}' | tr -d ' \r')
+          FW_VER_ZIP=$(unzip -p dist/fw_Open-GBFlash.zip fw.ini | awk -F'= *' '/fw_ver/ {print $2}' | tr -d 'L \r')
+          FW_TS_ZIP=$(unzip -p dist/fw_Open-GBFlash.zip fw.ini | awk -F'= *' '/fw_buildts/ {print $2}' | tr -d ' \r')
           echo "  source: FW_VERSION=$FW_VER_SRC FW_TIMESTAMP=$FW_TS_SRC"
           echo "  zip   : fw_ver=L$FW_VER_ZIP fw_buildts=$FW_TS_ZIP"
           [ "$FW_VER_SRC" = "$FW_VER_ZIP" ] || { echo "::error::fw_ver in the zip does not match FW_VERSION"; exit 1; }
           [ "$FW_TS_SRC" = "$FW_TS_ZIP" ]  || { echo "::error::fw_buildts in the zip does not match FW_TIMESTAMP"; exit 1; }
-          MEMBERS=$(unzip -Z1 dist/fw_GBFlash.zip | sort | tr '\n' ' ')
+          MEMBERS=$(unzip -Z1 dist/fw_Open-GBFlash.zip | sort | tr '\n' ' ')
           [ "$MEMBERS" = "fw.bin fw.ini " ] || { echo "::error::zip members are '$MEMBERS', expected 'fw.bin fw.ini'"; exit 1; }
+
+      # FW_TIMESTAMP is set by hand so the released image stays byte-identical to
+      # the one tested on hardware. Nothing else notices when a release forgets to
+      # move it, and the stale value then claims a build date months before the
+      # code it describes.
+      - name: The build stamp belongs to this release
+        run: |
+          set -e
+          FW_TS_SRC=$(sed -n 's/^FW_TIMESTAMP[ ?=]*\([0-9][0-9]*\).*/\1/p' Makefile | head -1)
+          case "$FW_TS_SRC" in
+            ''|*[!0-9]*) echo "::error::FW_TIMESTAMP is not a plain epoch: '$FW_TS_SRC'"; exit 1;;
+          esac
+          TAG_TS=$(git -c log.showSignature=false log -1 --format=%ct "$GITHUB_REF_NAME")
+          SKEW=$(( FW_TS_SRC > TAG_TS ? FW_TS_SRC - TAG_TS : TAG_TS - FW_TS_SRC ))
+          echo "  FW_TIMESTAMP=$FW_TS_SRC  tag=$TAG_TS  skew=$((SKEW / 86400)) days"
+          [ "$FW_TS_SRC" != 1780508702 ] || { echo "::error::FW_TIMESTAMP is still the stock build date"; exit 1; }
+          [ "$SKEW" -le 2592000 ] || { echo "::error::FW_TIMESTAMP is $((SKEW / 86400)) days from the tagged commit; bump it"; exit 1; }
 
       # A release with no changelog entry is a release nobody can read.
       - name: The changelog mentions this tag
@@ -78,8 +95,8 @@ jobs:
 
       - name: Checksums
         run: |
-          sha256sum dist/fw_GBFlash.zip hw_GBFlash.py > SHA256SUMS
-          unzip -p dist/fw_GBFlash.zip fw.bin > /tmp/fw.bin
+          sha256sum dist/fw_Open-GBFlash.zip hw_GBFlash.py > SHA256SUMS
+          unzip -p dist/fw_Open-GBFlash.zip fw.bin > /tmp/fw.bin
           echo "fw.bin (inside the zip)  $(sha256sum /tmp/fw.bin | cut -d' ' -f1)" >> SHA256SUMS
           cat SHA256SUMS
 
@@ -87,7 +104,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/fw_GBFlash.zip
+            dist/fw_Open-GBFlash.zip
             hw_GBFlash.py
             SHA256SUMS
           body: |
@@ -99,7 +116,7 @@ jobs:
 
             **Installing**
 
-            1. Put `fw_GBFlash.zip` in `FlashGBX/res/`, replacing the copy there.
+            1. Put `fw_Open-GBFlash.zip` in `FlashGBX/res/`, beside `fw_GBFlash.zip`.
             2. Copy `hw_GBFlash.py` over `FlashGBX/hw_GBFlash.py`.
             3. Tools > Firmware Updater, holding **U22** while plugging in.
 

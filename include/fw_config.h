@@ -14,18 +14,14 @@
 #define FW_VERSION          15
 
 #ifndef FW_TIMESTAMP
-/* Must equal hw_GBFlash.DEVICE_LATEST_FW_TS for this PCB version, or
- * FirmwareUpdateAvailable() returns True on every launch and the user is
- * offered an "update" that would replace this firmware with stock. The test is
- * equality, so there is no nearby value that also passes.
+/* Build date reported to the host, seconds since the epoch. Set at release, not
+ * derived from the clock: the released image has to stay byte-identical to the
+ * one tested on hardware, and a value that moves with the build does not.
  *
- * Below 1730592000 FlashGBX flags the device as unofficial firmware and sets
- * FW_UPDATE_REQ, which is a stronger prompt again. Asserted below.
- *
- * When a new stock firmware ships, FlashGBX's table moves and this stops
- * matching. That is the correct behaviour: it means the host has learnt about
- * a version this firmware has not been checked against. */
-#define FW_TIMESTAMP        1780508702u   /* matches L15 in FlashGBX 5.0 */
+ * The host file this project ships compares it against res/fw_Open-GBFlash.zip.
+ * A stock FlashGBX compares it against its own table of stock build dates and
+ * offers an update whenever it differs. */
+#define FW_TIMESTAMP        1788313704u
 #endif
 
 #if FW_TIMESTAMP != 0u && FW_TIMESTAMP < 1730592000u

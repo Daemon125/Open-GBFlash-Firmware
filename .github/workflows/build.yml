@@ -66,11 +66,11 @@ jobs:
       - name: Report what was built
         run: |
           echo "fw.bin   $(sha256sum build/fw.bin | cut -d' ' -f1)"
-          unzip -p dist/fw_GBFlash.zip fw.ini
+          unzip -p dist/fw_Open-GBFlash.zip fw.ini
 
       - uses: actions/upload-artifact@v4
         with:
           name: open-gbflash-${{ github.sha }}
           path: |
-            dist/fw_GBFlash.zip
+            dist/fw_Open-GBFlash.zip
             hw_GBFlash.py

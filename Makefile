@@ -54,7 +54,7 @@ ARCHFLAGS := -mcpu=cortex-m0 -mthumb
 
 # Below 1730592000 FlashGBX flags the firmware as unofficial and offers to
 # overwrite it on every connect. include/fw_config.h:14 #errors on it.
-FW_TIMESTAMP ?= 1780508702
+FW_TIMESTAMP ?= 1788313704
 
 # Must be 0. With echo on, the loopback pump drains the receive staging before
 # the protocol framer sees a byte: the device enumerates, mirrors what is sent
@@ -612,6 +612,9 @@ all: $(BUILD)/fw.bin
 # The artifact FlashGBX installs. Both member names are fixed by the updater:
 # fw.bin and fw.ini at the top level, nothing else. fw_ver must match
 # FW_VERSION or FlashGBX offers the update again on every launch.
+#
+# Named fw_Open-GBFlash.zip because it goes BESIDE the vendor's fw_GBFlash.zip
+# rather than over it. The chooser in hw_GBFlash.py looks for this name.
 DIST     := dist
 # No '#' in this awk program: make would take it as a comment and never find
 # the closing paren.
@@ -622,8 +625,8 @@ dist: $(BUILD)/fw.bin
 	$(Q)cp $(BUILD)/fw.bin $(DIST)/fw.bin
 	$(Q)printf '[Firmware]\nfw_ver = L%s\nfw_buildts = %s\n' \
 	    '$(FW_VER_N)' '$(FW_TIMESTAMP)' > $(DIST)/fw.ini
-	$(Q)cd $(DIST) && rm -f fw_GBFlash.zip && zip -q -X fw_GBFlash.zip fw.bin fw.ini
-	$(Q)echo "  DIST    $(DIST)/fw_GBFlash.zip"
+	$(Q)cd $(DIST) && rm -f fw_Open-GBFlash.zip && zip -q -X fw_Open-GBFlash.zip fw.bin fw.ini
+	$(Q)echo "  DIST    $(DIST)/fw_Open-GBFlash.zip"
 
 $(BUILD):
 	$(Q)mkdir -p $(BUILD)
