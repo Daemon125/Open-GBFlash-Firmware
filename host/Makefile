@@ -13,6 +13,14 @@
 # its old claims are history rather than defects; check 5 only reports where
 # a newer entry supersedes one, and never fails.
 #
+# test_host_update checks what the updater offers: an Open-GBFlash device is
+# compared against res/fw_Open-GBFlash.zip, a stock one still gets upstream's
+# answer. It needs the FlashGBX package and skips without it.
+#
+# test_host_attrs guards hw_GBFlash.py against a self.X() naming a method on
+# another class in the file. GbxDevice extends LK_Device from FlashGBX, which a
+# clone does not carry, so checks 3 and 4 only run where that tree is present.
+#
 # test_no_inert_state deliberately does not scan src/lk_glue.c: mirroring a
 # field into an LK variable is not acting on it, and adding the file would let
 # a one-line assignment satisfy the guard. test_lk_seam covers the mirror from
@@ -31,6 +39,8 @@ test:
 	$(PYTHON) test_lk_seam.py
 	$(PYTHON) test_lk_glue.py
 	$(PYTHON) test_stale_claims.py
+	$(PYTHON) test_host_attrs.py
+	$(PYTHON) test_host_update.py
 
 clean:
 	rm -rf build __pycache__

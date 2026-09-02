@@ -215,6 +215,18 @@ def set_variable(name, value):
         + struct.pack(">I", value)
 
 
+def read_define_ts(path):
+    with open(path, encoding="utf-8") as f:
+        m = re.search(r"^#define\s+FW_TIMESTAMP\s+(\d+)u?", f.read(), re.M)
+    return int(m.group(1)) if m else None
+
+
+def read_makefile_ts(path):
+    with open(path, encoding="utf-8") as f:
+        m = re.search(r"^FW_TIMESTAMP\s*\??=\s*(\d+)", f.read(), re.M)
+    return int(m.group(1)) if m else None
+
+
 def parse_fw_info(reply):
     """Exactly hw_GBFlash.py LoadFirmwareVersion()'s read sequence."""
     size = reply[0]
@@ -262,6 +274,24 @@ def test_fw_info(p):
        str(fw["fw_ver"]))
     ck(fw.get("pcb_name"), "a PCB name is present, as fw_ver >= 12 requires",
        repr(fw.get("pcb_name")))
+
+    # proto.c is built here without -DFW_TIMESTAMP, so it takes fw_config.h's
+    # default. The shipped image takes the Makefile's. A disagreement means this
+    # suite and the released firmware report different build dates.
+    hdr_ts = read_define_ts(os.path.join(ROOT, "include", "fw_config.h"))
+    mk_ts = read_makefile_ts(os.path.join(ROOT, "Makefile"))
+    ck(hdr_ts is not None and mk_ts is not None,
+       "both FW_TIMESTAMP values are readable",
+       "fw_config.h=%s Makefile=%s" % (hdr_ts, mk_ts))
+    ck(hdr_ts == mk_ts,
+       "fw_config.h's FW_TIMESTAMP default matches the Makefile's",
+       "fw_config.h=%s Makefile=%s" % (hdr_ts, mk_ts))
+    ck(fw["fw_ts"] == hdr_ts,
+       "the reported build date is the one in the source",
+       "reported %s, source %s" % (fw["fw_ts"], hdr_ts))
+    ck(fw["fw_ts"] != 1780508702,
+       "the build date is this firmware's own, not the stock one",
+       str(fw["fw_ts"]))
     ck("Open" in fw.get("pcb_name", ""),
        "the name distinguishes this from stock firmware",
        repr(fw.get("pcb_name")))

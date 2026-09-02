@@ -5,10 +5,11 @@ Flashes each firmware in turn and times the same work through FlashGBX, then
 writes results/benchmark-<host>.txt. Run it, answer the cartridge prompts, and
 send the txt back.
 
-Stock is measured twice on reads: once through unmodified FlashGBX, which pins
-the read buffer at 0x1000, and once through the patched FlashGBX this project
-ships, which negotiates up to 0x8000. Without that control a reader cannot tell
-how much of any difference is the firmware and how much is the host.
+Stock is measured twice on reads: once through unmodified FlashGBX and once
+through the patched FlashGBX this project ships. The patched host negotiates up
+to 0x8000 only for Open-GBFlash and pins a stock device at 0x1000, upstream's
+value, so the two stock rows should agree. They are the check that the host is
+not contributing to the firmware comparison.
 """
 
 import argparse
@@ -560,7 +561,7 @@ def run_cart(cart, mode, methods, do_writes, roms, flashcart, quick, reads,
     md5s["stock/pristine"] = phase_reads(cart, mode, "stock L15", "pristine",
                                          methods[-1:], reads)
     set_host("patched")
-    say("  stock L15  +  patched FlashGBX (negotiates 0x8000)")
+    say("  stock L15  +  patched FlashGBX (pins stock at 0x1000 too)")
     md5s["stock/patched"] = phase_reads(cart, mode, "stock L15", "patched",
                                         methods, reads)
 
@@ -626,9 +627,10 @@ def report(path, elapsed, wrote, spin0, spin1, aborted=None):
               "  *** across firmwares from a partial run.\n" % aborted)
         w("\n")
         w("  'pristine' is FlashGBX as shipped, read buffer pinned to 0x1000.\n")
-        w("  'patched'  is this project's FlashGBX, which negotiates up to 0x8000.\n")
-        w("  Stock is measured on both so the firmware and the host can be told\n")
-        w("  apart. Open-GBFlash has its own USB id and needs the patched host.\n\n")
+        w("  'patched'  is this project's FlashGBX. It negotiates up to 0x8000\n")
+        w("             for Open-GBFlash and pins a stock device at 0x1000.\n")
+        w("  The two stock rows should agree: that is the check that the host is\n")
+        w("  not contributing. Open-GBFlash needs the patched host to be seen.\n\n")
         w("%-26s %-13s %-9s %-24s %10s %11s\n"
           % ("cartridge", "firmware", "host", "operation", "seconds", "KiB/s"))
         w("-" * 98 + "\n")

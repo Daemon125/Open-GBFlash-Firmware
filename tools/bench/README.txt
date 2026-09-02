@@ -38,11 +38,11 @@ Why stock is measured twice
 ---------------------------
 
 Stock is timed twice: once through FlashGBX's own hw_GBFlash.py, which pins the
-read buffer to 0x1000, and again through the patched one this project ships, and again through the patched FlashGBX this project ships, which
-negotiates up to 0x8000. Without that control there is no way to tell how much
-of a difference is the firmware and how much is the host. Open-GBFlash has its
-own USB identity, which unmodified FlashGBX does not recognise, so it is only
-measured on the patched host.
+read buffer to 0x1000, and again through the patched one this project ships,
+which pins a stock device to 0x1000 as well. The two should agree, which is the
+check that the host is not contributing to the firmware comparison.
+Open-GBFlash has its own USB identity, which unmodified FlashGBX does not
+recognise, so it is only measured on the patched host.
 
 
 The test ROMs
