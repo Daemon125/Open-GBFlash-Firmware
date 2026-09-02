@@ -301,6 +301,11 @@ Keep a copy of the original `hw_GBFlash.py` before replacing it.
    LED blinks twice, repeatedly.
 5. Release the button and let the updater finish.
 
+**Coming from an earlier release that replaced `res/fw_GBFlash.zip`?** Restore
+the vendor copy by reinstalling FlashGBX, then put `fw_Open-GBFlash.zip` beside
+it. With this firmware still sitting in the vendor's file name there is no
+firmware choice, and the **Original firmware** button installs this one.
+
 **If the device stops being detected later, FlashGBX was probably updated.**
 `hw_GBFlash.py` belongs to the FlashGBX package, so `pip install --upgrade
 FlashGBX` replaces it with the original, which does not know this firmware's USB

@@ -5,6 +5,17 @@
 Host-side fixes and a real build stamp. The cartridge paths are unchanged, so the
 speed figures for 1.0.0 still stand.
 
+### Upgrading from 1.0.0
+
+1.0.0 said to replace `res/fw_GBFlash.zip` with this firmware. This release
+expects that file to be the vendor's again: ours now goes in beside it as
+`res/fw_Open-GBFlash.zip`.
+
+If you followed the 1.0.0 steps, restore `res/fw_GBFlash.zip` by reinstalling
+FlashGBX, then drop `fw_Open-GBFlash.zip` in next to it. Left as it is, the
+updater shows no firmware choice, and the **Original firmware** button installs
+this firmware rather than the vendor's.
+
 ### Fixed
 
 - Switching back to the stock firmware failed on Windows unless the U22 button
