@@ -2,18 +2,56 @@
 # FlashGBX
 # Author: Lesserkuma (github.com/Lesserkuma)
 # Modified for Open-GBFlash compatibility by Daemon125 (github.com/Daemon125)
+# Firmware chooser in the updater from a design by Charlie SIGMA
 
 # pylint: disable=wildcard-import, unused-wildcard-import
-import datetime, os, struct, time, zipfile
-from .app import AppInfo
+import configparser, datetime, os, struct, time, zipfile, zlib
+from .app import AppInfo, AppContext
 from .LK_Device import *
 from .i18n import __, c__
 from .IniSettings import IniSettings
+
+OPEN_FW_ZIP = "fw_Open-GBFlash.zip"
+
+
+def ReadOpenFirmwareZip(app_path):
+	"""Describe res/fw_Open-GBFlash.zip, or None if it is not usable.
+
+	Returning None has to leave the updater exactly as upstream's. An earlier
+	design read both firmwares out of the vendor's own zip and refused to open at
+	all when the second was missing, which cost the user the ability to install
+	even the original.
+	"""
+	path = app_path + os.sep + os.path.join("res", OPEN_FW_ZIP)
+	try:
+		with zipfile.ZipFile(path) as z:
+			z.read("fw.bin")
+			ini = IniSettings(ini=z.open("fw.ini").read().decode("utf-8"),
+			                  main_section="Firmware")
+		ver = ini.GetValue("fw_ver")
+		if not ver:
+			return None
+		try:
+			ts = int(ini.GetValue("fw_buildts"))
+		except (TypeError, ValueError):
+			ts = None
+		date = __("unknown date")
+		if ts is not None:
+			try:
+				date = datetime.datetime.fromtimestamp(ts).strftime("%x")
+			except (OverflowError, OSError, ValueError):
+				ts = None
+		return {"path": path, "ver": ver, "ts": ts, "date": date}
+	except (OSError, zipfile.BadZipFile, KeyError, UnicodeDecodeError,
+	        configparser.Error, zlib.error, EOFError):
+		return None
+
 
 class GbxDevice(LK_Device):
 	DEVICE_NAME = "GBFlash"
 	DEVICE_MIN_FW = 1
 	DEVICE_MAX_FW = 12
+	OPEN_FW = False
 	DEVICE_LATEST_FW_TS = { 5:1780508702, 10:1780508702, 11:1780508702, 12:1780508702, 13:1780508702 }
 	PCB_VERSIONS = { 5:'', 12:'v1.2', 13:'v1.3' }
 	DEVICE_LABEL_LONG = "GBFlash"
@@ -24,6 +62,60 @@ class GbxDevice(LK_Device):
 
 	def __init__(self):
 		pass
+
+	def GetSupportMessage(self):
+		# LK_Device reads DEVICE_SUPPORT_MESSAGE off type(self), so a value
+		# assigned there for one device would outlive the connection that set it.
+		if getattr(self, "OPEN_FW", False):
+			return (
+				"For help with the Open-GBFlash firmware, please visit the project page:\n"
+				"https://github.com/Daemon125/Open-GBFlash-Firmware\n\n"
+				"For the GBFlash hardware itself:\n"
+				"https://github.com/simonkwng/GBFlash"
+			)
+		return LK_Device.GetSupportMessage(self)
+
+	def _ResyncStalled(self, port):
+		"""Recover a device left part way through a command.
+
+		An interrupted transfer leaves the firmware's command parser waiting for
+		argument bytes, so every later command is swallowed as arguments and the
+		device answers nothing. It then looks absent rather than busy, and the
+		only documented cure is unplugging it. Feeding it more zeros than any
+		command consumes, then draining, puts the parser back on a command
+		boundary.
+
+		Restricted to 0x1209:0x0008, this firmware's own USB identity. The
+		0x1A86:0x7523 branch of the port scan is a generic CH340, so it can be
+		somebody's unrelated serial adapter, and writing 2 KB to that is not
+		this tool's business.
+		"""
+		try:
+			import serial.tools.list_ports
+			if not any(p.device == port and (p.vid, p.pid) == (0x1209, 0x0008)
+			           for p in serial.tools.list_ports.comports()):
+				return False
+			dev = serial.Serial(port, 2000000, timeout=0.5, exclusive=True)
+		except Exception:
+			return False
+		try:
+			for _ in range(3):
+				dev.write(b"\x00" * 2048)
+				dev.flush()
+				time.sleep(0.3)
+				while dev.read(65536):
+					pass
+				dev.reset_input_buffer()
+				dev.write(b"\xA1")
+				dev.flush()
+				if dev.read(1)[:1] not in (b"", b"\x00"):
+					dprint("Resynchronised a stalled device on", port)
+					return True
+			return False
+		except Exception:
+			return False
+		finally:
+			dev.close()
 
 	def Initialize(self, flashcarts, port=None, max_baud=2000000):
 		if self.IsConnected(): self.DEVICE.close()
@@ -58,6 +150,10 @@ class GbxDevice(LK_Device):
 			dprint("Firmware information:", self.FW)
 			# dprint("Baud rate:", self.BAUDRATE)
 
+			# The device is asked what it is rather than assumed from its USB id,
+			# because the identity is a build option and the firmware's name is not.
+			self.OPEN_FW = (self.FW.get("pcb_name") or "").strip() == "Open-GBFlash"
+
 			if self.DEVICE is None or not self.IsConnected():
 				self.DEVICE = None
 				if self.FW is not None:
@@ -68,24 +164,34 @@ class GbxDevice(LK_Device):
 				dev.close()
 				self.DEVICE = None
 				continue
-			elif self.FW["fw_ts"] > self.DEVICE_LATEST_FW_TS[self.FW["pcb_ver"]]:
+			elif not self.OPEN_FW and self.FW["fw_ts"] > self.DEVICE_LATEST_FW_TS[self.FW["pcb_ver"]]:
 				conn_msg.append([1, __("Note: The {device_name} on port {port} is running a firmware version that is newer than what this version of FlashGBX was developed to work with, so errors may occur.", device_name=self.DEVICE_NAME, port=ports[i])])
 
-			# The read buffer is written and read back, not assumed. Open-GBFlash
-			# clamps to its own FW_MAX_TRANSFER, so the reply is its real ceiling.
-			# Stock L15 does not clamp, it stores whatever it is given, but it does
-			# service 0x8000: dumps are byte-exact at that size and no faster than
-			# at 0x1000. A firmware that neither clamped nor serviced the size would
-			# desync here, and none is known to exist.
-			negotiated = 0
-			try:
-				self._set_fw_variable("TRANSFER_SIZE", 0x8000)
-				negotiated = self._get_fw_variable("TRANSFER_SIZE")
-			except Exception:
+			# Everything below is applied only to Open-GBFlash. On the stock
+			# firmware this file behaves exactly as the one it replaces, so a
+			# user who switches back does not carry tuning meant for something
+			# else.
+
+			if not self.OPEN_FW:
+				# Upstream's value, unchanged. Negotiating a larger buffer wins
+				# stock nothing: it does not clamp, services whatever it is
+				# handed, and reads no faster for it. On macOS it reads about
+				# 22% SLOWER on Game Boy, which is a regression to hand someone
+				# who has gone back to the vendor firmware.
+				self.MAX_BUFFER_READ = 0x1000
+			else:
+				# Written and read back rather than assumed. Open-GBFlash clamps
+				# to its own FW_MAX_TRANSFER, so the reply is its real ceiling,
+				# and reading in larger pieces costs fewer round trips.
 				negotiated = 0
-			if not isinstance(negotiated, int) or negotiated < 0x1000:
-				negotiated = 0x1000
-			self.MAX_BUFFER_READ = min(negotiated, 0x8000)
+				try:
+					self._set_fw_variable("TRANSFER_SIZE", 0x8000)
+					negotiated = self._get_fw_variable("TRANSFER_SIZE")
+				except Exception:
+					negotiated = 0
+				if not isinstance(negotiated, int) or negotiated < 0x1000:
+					negotiated = 0x1000
+				self.MAX_BUFFER_READ = min(negotiated, 0x8000)
 			self.MAX_BUFFER_WRITE = 0x800
 
 			self.PORT = ports[i]
@@ -202,6 +308,15 @@ class GbxDevice(LK_Device):
 		return True
 
 	def FirmwareUpdateAvailable(self):
+		if self.OPEN_FW:
+			# DEVICE_LATEST_FW_TS holds stock build dates and says nothing about
+			# this firmware. The image that would be installed is what to compare.
+			if self._SkipOpenFirmwareUpdate():
+				return False
+			ofw = ReadOpenFirmwareZip(AppContext.APP_PATH)
+			if ofw is None or ofw["ts"] is None:
+				return False
+			return ofw["ts"] > self.FW["fw_ts"]
 		if self.FW["pcb_ver"] == 5 or self.FW["fw_ts"] < 1730592000: # unofficial firmware
 			self.FW_UPDATE_REQ = True
 			return True
@@ -209,6 +324,16 @@ class GbxDevice(LK_Device):
 			return True
 		self.FW_UPDATE_REQ = False
 		return False
+
+	def _SkipOpenFirmwareUpdate(self):
+		# FlashGBX builds an "Ignore firmware updates" checkbox for this prompt and
+		# never passes it to setCheckBox(), so the prompt has no off switch of its
+		# own. SkipFirmwareUpdate is global and silences the other devices too.
+		try:
+			ini = IniSettings(path=AppContext.CONFIG_PATH + os.sep + "settings.ini")
+			return str(ini.GetValue("SkipOpenFirmwareUpdate")).lower() == "enabled"
+		except Exception:
+			return False
 
 	def GetFirmwareUpdaterClass(self):
 		try:
@@ -228,6 +353,25 @@ class GbxDevice(LK_Device):
 		try:
 			self._write(self.DEVICE_CMD["BOOTLOADER_RESET"], wait=True)
 			self._write(1)
+			# BOOTLOADER_RESET is two bytes: the first draws an ack, the second
+			# confirms and the device jumps. Closing straight after writing that
+			# confirm can discard it.
+			#
+			# flush() drains to the driver, not across the USB pipe. On POSIX it
+			# is tcdrain and blocks until the bytes are gone, which is why this
+			# has always worked on macOS. On Windows it polls out_waiting, and
+			# the byte can still be in flight when the handle closes, so the
+			# device stays on its application firmware and the user is told to
+			# hold U22. Wait for the queue to empty, then give it a moment on
+			# the wire.
+			try:
+				self.DEVICE.flush()
+				end = time.time() + 2.0
+				while self.DEVICE.out_waiting and time.time() < end:
+					time.sleep(0.02)
+			except (OSError, AttributeError, NotImplementedError):
+				pass
+			time.sleep(0.4)
 			self.DEVICE.close()
 			return True
 		except Exception as e:
@@ -314,48 +458,6 @@ class FirmwareUpdater():
 
 		return wCRC
 
-	def _ResyncStalled(self, port):
-		"""Recover a device left part way through a command.
-
-		An interrupted transfer leaves the firmware's command parser waiting for
-		argument bytes, so every later command is swallowed as arguments and the
-		device answers nothing. It then looks absent rather than busy, and the
-		only documented cure is unplugging it. Feeding it more zeros than any
-		command consumes, then draining, puts the parser back on a command
-		boundary.
-
-		Restricted to 0x1209:0x0008, this firmware's own USB identity. The
-		0x1A86:0x7523 branch of the port scan is a generic CH340, so it can be
-		somebody's unrelated serial adapter, and writing 2 KB to that is not
-		this tool's business.
-		"""
-		try:
-			import serial.tools.list_ports
-			if not any(p.device == port and (p.vid, p.pid) == (0x1209, 0x0008)
-			           for p in serial.tools.list_ports.comports()):
-				return False
-			dev = serial.Serial(port, 2000000, timeout=0.5, exclusive=True)
-		except Exception:
-			return False
-		try:
-			for _ in range(3):
-				dev.write(b"\x00" * 2048)
-				dev.flush()
-				time.sleep(0.3)
-				while dev.read(65536):
-					pass
-				dev.reset_input_buffer()
-				dev.write(b"\xA1")
-				dev.flush()
-				if dev.read(1)[:1] not in (b"", b"\x00"):
-					dprint("Resynchronised a stalled device on", port)
-					return True
-			return False
-		except Exception:
-			return False
-		finally:
-			dev.close()
-
 	def TryConnect(self, port):
 		seq_no = 1
 		packet = {
@@ -371,37 +473,46 @@ class FirmwareUpdater():
 
 		self.DEVICE = None
 		try:
-			self.DEVICE = serial.Serial(port, 2000000, timeout=0.5)
-			self.DEVICE.write(b'\xF1')
-			self.DEVICE.read(1)
-			# BOOTLOADER_RESET is two bytes: 0xF1 draws an ack, then 0x01
-			# confirms and the device jumps. Closing straight after writing that
-			# confirm can discard it. flush() drains to the driver, not across
-			# the USB pipe, so wait for the write queue to empty and give it a
-			# moment on the wire. Without this the device stays on its
-			# application firmware, no bootloader appears, and the update stops
-			# with "No device found" having done nothing.
-			self.DEVICE.write(b'\x01')
-			self.DEVICE.flush()
-			try:
-				_end = time.time() + 2.0
-				while self.DEVICE.out_waiting and time.time() < _end:
-					time.sleep(0.02)
-			except (OSError, AttributeError, NotImplementedError):
-				pass
-			time.sleep(0.4)
-			self.DEVICE.close()
-			time.sleep(3)
 			# The bootloader is always a CH340 at 1A86:7523. A firmware with its
-			# own USB identity re-enumerates under a different port name across
-			# the handover, so reopening the same path fails. Find the
-			# bootloader by VID/PID and fall back to the original path.
-			bl_port = port
+			# own USB identity comes back under a different port name across the
+			# handover, and the caller may already have reset into the bootloader,
+			# so the recorded path can be gone before this runs. Resolve both
+			# before opening anything.
+			bl_port = None
+			have_port = False
 			for p in serial.tools.list_ports.comports():
-				if p.vid == 0x1A86 and p.pid == 0x7523:
+				if p.vid == 0x1A86 and p.pid == 0x7523 and bl_port is None:
 					bl_port = p.device
-					break
-			self.DEVICE = serial.Serial(bl_port, 2000000, timeout=0.5)
+				if p.device == port:
+					have_port = True
+
+			if bl_port is not None and not have_port:
+				# Already in the bootloader under a new name. Nothing to hand over.
+				self.DEVICE = serial.Serial(bl_port, 2000000, timeout=0.5)
+			else:
+				self.DEVICE = serial.Serial(port, 2000000, timeout=0.5)
+				self.DEVICE.write(b'\xF1')
+				self.DEVICE.read(1)
+				# 0xF1 draws an ack, 0x01 confirms and the device jumps. Wait for
+				# the write queue to drain before closing; flush() only reaches the
+				# driver, not across the USB pipe.
+				self.DEVICE.write(b'\x01')
+				self.DEVICE.flush()
+				try:
+					_end = time.time() + 2.0
+					while self.DEVICE.out_waiting and time.time() < _end:
+						time.sleep(0.02)
+				except (OSError, AttributeError, NotImplementedError):
+					pass
+				time.sleep(0.4)
+				self.DEVICE.close()
+				time.sleep(3)
+				bl_port = port
+				for p in serial.tools.list_ports.comports():
+					if p.vid == 0x1A86 and p.pid == 0x7523:
+						bl_port = p.device
+						break
+				self.DEVICE = serial.Serial(bl_port, 2000000, timeout=0.5)
 
 		except serial.serialutil.SerialException:
 			return False
@@ -432,7 +543,7 @@ class FirmwareUpdater():
 		try:
 			with zipfile.ZipFile(zipfn) as archive:
 				with archive.open("fw.bin") as f: fw_data = bytearray(f.read())
-		except (zipfile.BadZipFile, KeyError):
+		except (zipfile.BadZipFile, KeyError, zlib.error, EOFError):
 			fncSetStatus(__("The firmware update file is corrupted."))
 			return 2
 
@@ -623,7 +734,43 @@ try:
 			rowDeviceInfo4.addWidget(self.lblDeviceFWVer2)
 			rowDeviceInfo4.addWidget(self.lblDeviceFWVer2Result)
 			rowDeviceInfo4.addStretch(1)
-			self.grpAvailableFwUpdatesLayout.addLayout(rowDeviceInfo4)
+
+			# A second firmware, in its own zip beside the vendor's rather than
+			# merged into it. The vendor file is never touched, so a FlashGBX
+			# upgrade replaces theirs and leaves this one alone, and going back
+			# to the original is a radio button rather than restoring a backup.
+			# Absent, everything below is skipped and this dialog is upstream's.
+			self.optFWOriginal = None
+			self.optFWOpen = None
+			ofw = self.OpenFirmwareInfo()
+			if ofw is not None:
+				self.optFWOriginal = QtWidgets.QRadioButton(__("Original firmware"))
+				self.optFWOriginal.setChecked(True)
+				lblOrig = QtWidgets.QLabel(
+					"<ul><li>" + __("Maintained by Lesserkuma, shipped with FlashGBX") + "</li></ul>")
+				lblOrig.setWordWrap(True)
+				lblOrig.mousePressEvent = lambda x: self.optFWOriginal.setChecked(True)
+
+				self.optFWOpen = QtWidgets.QRadioButton(
+					__("Open-GBFlash {version} ({date})", version=ofw["ver"], date=ofw["date"]))
+				lblOpen = QtWidgets.QLabel(
+					"<ul><li>" + __("Third-party firmware by Daemon125") + "</li><li>"
+					+ __("Not supported by Lesserkuma; report problems to the project:")
+					+ "<br>https://github.com/Daemon125/Open-GBFlash-Firmware"
+					+ "</li><li>" + __("Use at your own risk") + "</li></ul>")
+				lblOpen.setWordWrap(True)
+				lblOpen.mousePressEvent = lambda x: self.optFWOpen.setChecked(True)
+
+				dev_ts = (getattr(self.DEVICE, "FW", None) or {}).get("fw_ts")
+				if ofw["ts"] is not None and dev_ts is not None and ofw["ts"] > dev_ts:
+					self.optFWOpen.setChecked(True)
+
+				self.grpAvailableFwUpdatesLayout.addWidget(self.optFWOriginal)
+				self.grpAvailableFwUpdatesLayout.addWidget(lblOrig)
+				self.grpAvailableFwUpdatesLayout.addWidget(self.optFWOpen)
+				self.grpAvailableFwUpdatesLayout.addWidget(lblOpen)
+			else:
+				self.grpAvailableFwUpdatesLayout.addLayout(rowDeviceInfo4)
 
 			self.rowUpdate = QtWidgets.QHBoxLayout()
 			self.btnUpdate = QtWidgets.QPushButton(__("Install Firmware Update"))
@@ -668,6 +815,9 @@ try:
 			self.lblDeviceFWVerResult.setText(self.FW_VER)
 			self.SetPCBVersion()
 
+		def OpenFirmwareInfo(self):
+			return ReadOpenFirmwareZip(self.FWUPD.APP_PATH)
+
 		def SetPCBVersion(self):
 			file_name = self.FWUPD.APP_PATH + os.sep + os.path.join("res", "fw_GBFlash.zip")
 
@@ -679,7 +829,10 @@ try:
 				self.OFW_BUILDTS = self.INI.GetValue("fw_buildts")
 				self.OFW_TEXT = self.INI.GetValue("fw_text")
 
-			self.lblDeviceFWVer2Result.setText("{:s} ({:s})".format(self.OFW_VER, datetime.datetime.fromtimestamp(int(self.OFW_BUILDTS)).astimezone().replace(microsecond=0).isoformat()))
+			if self.optFWOriginal is None:
+				self.lblDeviceFWVer2Result.setText("{:s} ({:s})".format(self.OFW_VER, datetime.datetime.fromtimestamp(int(self.OFW_BUILDTS)).astimezone().replace(microsecond=0).isoformat()))
+			else:
+				self.optFWOriginal.setText(__("Original firmware {version} ({date})", version=self.OFW_VER, date=datetime.datetime.fromtimestamp(int(self.OFW_BUILDTS)).strftime("%x")))
 
 		def run(self):
 			try:
@@ -713,6 +866,33 @@ try:
 
 		def UpdateFirmware(self):
 			file_name = self.FWUPD.APP_PATH + os.sep + os.path.join("res", "fw_GBFlash.zip")
+
+			# Each zip carries its own fw.bin, so choosing a firmware is choosing
+			# a file. WriteFirmware is untouched.
+			if self.optFWOpen is not None and self.optFWOpen.isChecked():
+				ofw = self.OpenFirmwareInfo()
+				if ofw is None:
+					QtWidgets.QMessageBox.critical(self, AppInfo.NAME,
+						__("{file} could not be read.", file=OPEN_FW_ZIP))
+					return False
+				file_name = ofw["path"]
+				text = __("This will install Open-GBFlash {version}, which is not the firmware that came with your device and is not maintained by the author of FlashGBX.", version=ofw["ver"])
+				text += "\n\n" + __("Project page:") + "\nhttps://github.com/Daemon125/Open-GBFlash-Firmware"
+				text += "\n\n" + __("You can return to the original firmware at any time from this window.")
+				text += "\n\n" + __("Do you want to continue?")
+				msgbox = QtWidgets.QMessageBox(parent=self, icon=QtWidgets.QMessageBox.Question, windowTitle=AppInfo.NAME, text=text, standardButtons=QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+				msgbox.setDefaultButton(QtWidgets.QMessageBox.No)
+				if msgbox.exec() == QtWidgets.QMessageBox.No: return False
+
+			elif self.optFWOpen is not None and getattr(self.APP.CONN, "OPEN_FW", False):
+				# The handover changes the USB id and the port name with it.
+				# FirmwareUpdater.TryConnect looks the bootloader up by VID/PID.
+				text = __("This will replace Open-GBFlash with the original firmware.")
+				text += "\n\n" + __("The device is put into update mode over the connection already open, so the U22 button should not be needed. If the update fails, unplug the device, hold the small button (U22) while plugging the USB cable back in, then run the updater again.")
+				text += "\n\n" + __("Click OK to continue.")
+				msgbox = QtWidgets.QMessageBox(parent=self, icon=QtWidgets.QMessageBox.Information, windowTitle=AppInfo.NAME, text=text, standardButtons=QtWidgets.QMessageBox.Ok | QtWidgets.QMessageBox.Cancel)
+				msgbox.setDefaultButton(QtWidgets.QMessageBox.Ok)
+				if msgbox.exec() == QtWidgets.QMessageBox.Cancel: return False
 
 			if self.APP.CONN is None or self.APP.CONN.BootloaderReset() is False:
 				self.APP.DisconnectDevice()
@@ -750,6 +930,8 @@ try:
 					return True
 				elif ret == 2:
 					text = __("The firmware update has failed. Please try again.")
+					if (self.optFWOpen is not None and self.optFWOpen.isChecked()) or getattr(self.DEVICE, "OPEN_FW", False):
+						text += "\n\n" + __("Report Open-GBFlash problems at:") + "\nhttps://github.com/Daemon125/Open-GBFlash-Firmware"
 					self.btnUpdate.setEnabled(True)
 					self.btnClose.setEnabled(True)
 					msgbox = QtWidgets.QMessageBox(parent=self, icon=QtWidgets.QMessageBox.Critical, windowTitle=AppInfo.NAME, text=text, standardButtons=QtWidgets.QMessageBox.Ok)

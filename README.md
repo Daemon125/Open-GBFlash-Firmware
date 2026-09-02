@@ -21,11 +21,12 @@ macOS, GBFlash v1.3, measured through FlashGBX against the same cartridges.
 | GBA, write 16 MiB | 237.53 s (69 KiB/s) | **152.22 s (108 KiB/s)** | 1.6x |
 | GBA Video (3D Memory), read 64 MiB | 271.10 s (242 KiB/s) | **78.40 s (836 KiB/s)** | 3.5x |
 | Game Boy, read 2 MiB | 7.41 s (277 KiB/s) | **2.92 s (702 KiB/s)** | 2.5x |
-| Game Boy, write 2 MiB | 33.16 s (62 KiB/s) | 32.43 s (63 KiB/s) | 1.0x |
+| Game Boy, write 2 MiB | 33.81 s (61 KiB/s) | 33.02 s (62 KiB/s) | 1.0x |
 
 Reads are the best of three per firmware, and every dump of a cartridge came
-back byte-identical whichever firmware produced it. Writes were verified, best
-of three, and wrote the same file over the same starting contents.
+back byte-identical whichever firmware produced it. Reads are the best of three.
+Writes were verified and wrote the same file over the same starting contents,
+timed once after an untimed priming write.
 
 Stock is measured through unmodified FlashGBX, which is what a stock user
 actually has. That matters: this project's FlashGBX patch negotiates a larger
@@ -140,10 +141,12 @@ underneath.
 - **Cartridge data goes straight out to USB.** Stock copies every byte into a
   staging buffer on the way. Dropping that trip also freed the memory that made
   larger transfers possible.
-- **The host asks how much the device can send.** FlashGBX assumed 4 KiB. It now
-  asks and gets 20 KiB, so the same dump costs far fewer round trips.
-- **An endpoint nobody answers stops being polled.** Stock declares an interrupt
+- **The host asks how much the device can send.** FlashGBX assumed 4 KiB. It
+  asks this firmware and gets 20 KiB, so the same dump costs far fewer round
+  trips. A stock device is left on the 4 KiB it always used.
+- **An endpoint nobody answers is polled far less.** Stock declares an interrupt
   endpoint that the host asks a thousand times a second and that never replies.
+  This asks for it every 16 ms instead.
   Every one of those polls was bus time taken from the endpoint carrying your
   cartridge data.
 - **Game Boy writing follows the right routine.** This firmware had been modelled
@@ -167,8 +170,13 @@ ships a finished `hw_GBFlash.py` at the root of this repository, which you copy
 over `FlashGBX/hw_GBFlash.py`, replacing the file that is there. Keep the
 original if you want to go back.
 
-Four things differ from the file it replaces:
+Six things differ from the file it replaces:
 
+- **It offers this firmware in the updater at all.** The Firmware Updater gains
+  a choice between the original firmware and Open-GBFlash, each read from its
+  own zip in `res/`, and asks you to confirm before installing this one. The
+  project page appears there, in FlashGBX's **About Open-GBFlash** window and in
+  the update-failure dialog.
 - **It recognises the device.** FlashGBX finds a GBFlash by USB id, and looks
   only for the CH340 that the stock firmware pretends to be. Open-GBFlash has
   its own id, so without this it is simply never found.
@@ -182,34 +190,121 @@ Four things differ from the file it replaces:
 - **It finds the bootloader again after the identity changes.** Handing over
   from firmware to bootloader changes the USB id, so the port the updater was
   talking to disappears. This looks the bootloader up rather than assuming the
-  name stayed the same. It does not remove the U22 step: FlashGBX's updater
-  finds the device with its own port scan first, in a file this does not
-  replace, and that scan only looks for the stock id.
+  name stayed the same. Switching back to the stock firmware in the graphical
+  updater does not normally need a U22 press. The command line updater is a
+  different matter, covered under Installing: it cannot install this firmware,
+  and it does need the button.
+- **It knows what an update would install.** The firmware reports its own build
+  date, so FlashGBX's table of stock build dates says nothing about it. This
+  compares the device against the `fw_Open-GBFlash.zip` sitting beside it and
+  offers an update only when that file is newer, rather than offering to replace
+  this firmware with the stock one on every launch. To silence the prompt, put
+  `SkipOpenFirmwareUpdate = enabled` in the `[General]` section of FlashGBX's
+  `settings.ini`.
 
 None of it changes how cartridges are read or written. The same file works with
-the stock firmware, so there is no need to swap it back to use stock. One
-caveat if you do: on macOS the stock firmware reads Game Boy cartridges about
-20% slower through this file than through the original, because it negotiates a
-larger read buffer that the stock firmware gains nothing from. On Windows there
-is no difference.
+the stock firmware, so there is no need to swap it back to use stock. The read
+buffer is the one thing that changes with the firmware: on a stock device this
+file keeps FlashGBX's own 4 KiB, on every platform.
 
 ## Installing
 
-You need a GBFlash v1.0 to v1.3 and Python 3. Only v1.3 has been tested.
+You need a GBFlash v1.0 to v1.3. Only v1.3 has been tested. Python is needed
+only if you install FlashGBX with pip or run it from source; the Windows
+downloads carry their own.
 
-1. Download `fw_GBFlash.zip` from the releases page.
-2. Replace the copy inside FlashGBX: `FlashGBX/res/fw_GBFlash.zip`.
-   Also copy `hw_GBFlash.py` from this repository over
-   `FlashGBX/hw_GBFlash.py`.
-3. In FlashGBX, choose **Tools > Firmware Updater**, or from a terminal:
+**Which FlashGBX you have matters**, because one of the files below replaces one
+of its own.
 
-   ```
-   python3 run.py --cli --action fwupdate-gbflash
-   ```
+- **Windows**: either download works. The portable `.zip` keeps its files in the
+  folder you extracted it to, and the Setup package puts them in
+  `C:\Users\<you>\AppData\Local\Programs\FlashGBX`.
+- **macOS**: the app from the `.dmg` will **not** work. It is a frozen bundle
+  with no Python files in it at all, so `hw_GBFlash.py` cannot be replaced and
+  FlashGBX will not recognise the device afterwards. Install with pip instead,
+  as below.
+- **pip or a source checkout**: works everywhere.
 
-4. Unplug the device, hold the small **U22** button on the board, plug it back
-   in while still holding. The blue **ACT** LED blinks twice, repeatedly.
+If you are on something else, or unsure, the test is whether you can find
+`hw_GBFlash.py` inside your FlashGBX. If it is not there, the build is frozen
+and the firmware zip alone will not be enough.
+
+### On macOS
+
+The app from the `.dmg` cannot take `hw_GBFlash.py`, so install FlashGBX with
+pip instead:
+
+```
+python3 -m pip install FlashGBX PySide6
+```
+
+`PySide6` is not optional. Without a Qt binding FlashGBX starts in command line
+mode and there is no window to choose a firmware in. Naming it separately also
+avoids `FlashGBX[qt6]`, which zsh treats as a filename pattern and refuses.
+
+Start it with:
+
+```
+python3 -m FlashGBX
+```
+
+pip does install a `flashgbx` command, but in `~/Library/Python/<version>/bin`,
+which macOS does not search by default, so `python3 -m FlashGBX` is the shorter
+story. Both open the same window.
+
+The two files go into the package directory. This prints where that is:
+
+```
+python3 -c "import FlashGBX, os; print(os.path.dirname(FlashGBX.__file__))"
+```
+
+### On Windows
+
+Either download works, and both put the Python files one level down, in a
+`FlashGBX` folder beside `FlashGBX.exe`:
+
+- the portable `.zip`: wherever you extracted it
+- the Setup package: `C:\Users\<you>\AppData\Local\Programs\FlashGBX`
+
+Start it with `FlashGBX.exe` in that folder, or the Start menu entry the Setup
+package creates.
+
+### Installing the firmware
+
+Keep a copy of the original `hw_GBFlash.py` before replacing it.
+
+1. Download `fw_Open-GBFlash.zip` and `hw_GBFlash.py` from the releases page.
+2. Put `fw_Open-GBFlash.zip` in FlashGBX's `res/` folder, **beside**
+   `fw_GBFlash.zip`. Do not replace the original: it is what the **Original
+   firmware** button installs. Overwrite it and that button installs this
+   firmware instead; delete it and the Firmware Updater will not open at all.
+   Then close FlashGBX, copy `hw_GBFlash.py` over the one sitting beside `res/`,
+   and start it again. With FlashGBX still running the old file is already
+   loaded and the firmware choice never appears.
+
+   Where those two live:
+
+   - **Windows**: `<install folder>\FlashGBX\`, so the zip goes in
+     `<install folder>\FlashGBX\res\`.
+   - **macOS, pip or source**: the package directory printed above.
+   - The macOS `.app` has a `res/` folder under **right click the app > Show
+     Package Contents > `Contents/MacOS/res/`**, but it cannot take
+     `hw_GBFlash.py` at all, so the firmware zip alone will not help.
+3. In FlashGBX, choose **Tools > Firmware Updater**, pick **Open-GBFlash** and
+   confirm. That is the only way to install this firmware through FlashGBX. Its
+   command line updater always writes `res/fw_GBFlash.zip`, the original
+   firmware, whatever else is in `res/`: the file name is fixed in FlashGBX's own
+   `FlashGBX_CLI.py`, which this project does not replace.
+
+4. Only if the updater asks for it: unplug the device, hold the small **U22**
+   button on the board, plug it back in while still holding. The blue **ACT**
+   LED blinks twice, repeatedly.
 5. Release the button and let the updater finish.
+
+**If the device stops being detected later, FlashGBX was probably updated.**
+`hw_GBFlash.py` belongs to the FlashGBX package, so `pip install --upgrade
+FlashGBX` replaces it with the original, which does not know this firmware's USB
+id. Copy it back. `fw_Open-GBFlash.zip` is not part of the package and survives.
 
 **If the ACT LED does not blink twice repeatedly, the board probably has no
 working bootloader.** Clone boards are often shipped without one, so that they
@@ -220,7 +315,7 @@ of them leave the registration speed limiting in place.)
 That is only a problem for installing firmware, and it is fixable. There is an
 open source bootloader that accepts updates:
 <https://github.com/Daemon125/Open-GBFlash-Bootloader>. Install that first, then
-come back to step 1.
+come back to step 3.
 
 Once you are on Open-GBFlash this stops being a concern entirely. There is no
 cloned-hardware warning, no registration check, and no artificial speed limit
@@ -248,23 +343,29 @@ with; another version will compile but may not produce the same image:
 
 ```
 make            # build/fw.bin, the installable image
-make dist       # dist/fw_GBFlash.zip, what FlashGBX installs
+make dist       # dist/fw_Open-GBFlash.zip, what FlashGBX installs
 ./tools/flash.sh
 ```
 
 ## Going back to the official firmware
 
-The stock firmware ships inside FlashGBX, so you always have a copy.
+The original firmware is still there. Installing this one never replaced it,
+which is why `fw_Open-GBFlash.zip` goes beside `fw_GBFlash.zip` rather than over
+it.
 
-1. Restore FlashGBX's own `FlashGBX/res/fw_GBFlash.zip` (reinstall FlashGBX, or
-   keep a backup of the original before step 2 above).
-2. Run the firmware updater again, holding **U22** as before.
+1. Open **Tools > Firmware Updater**.
+2. Choose **Original firmware** and confirm.
 
-**Holding U22 is required going back, not optional.** The bootloader still
-presents itself as a CH340, the same as the stock firmware. When Open-GBFlash
-hands over, its own USB id disappears, and FlashGBX reads that as the update
-having failed: it does not go back and look for the stock id. Putting the board
-into update mode by hand with U22 sidesteps the whole handover.
+No U22 press is needed in the graphical FlashGBX. The device is handed over on
+the connection already open, and the updater then finds the bootloader by its
+USB id rather than by the port name it had before. Confirmed on Windows and
+macOS.
+
+**The command line updater is different, and does need U22.** It finds the
+device with its own port scan before anything else happens, and that scan looks
+only for the original USB id, so it cannot see a device already running this
+firmware. That code is FlashGBX's own and is not in the file this project
+replaces.
 
 The bootloader is never touched by any of this, so the U22 recovery path always
 works even if a firmware image is bad. If the device stops enumerating entirely,
@@ -274,19 +375,23 @@ firmware, and it cannot be bricked by a bad update.
 ## Compatibility
 
 Tested on GBFlash v1.3, on both an approved board and a clone board, with no
-difference in speed or behaviour between them.
+difference in speed or behaviour between them. Also run by a third party on an
+approved board under Windows with FlashGBX 5.1.
 
 Cartridges exercised:
 
-- **Game Boy Advance**: ChisFlash 16 MiB flash cartridge with a 1M FLASH save,
+- **Game Boy Advance**: ChisFlash 32 MiB flash cartridge with a 1M FLASH save,
   Pokemon Emerald repro, Super Mario Advance 4, Dragon Ball Z: The Legacy of
   Goku, and a Shark Tale GBA Video (3D Memory) cartridge. Super Mario Advance 4
   is a genuine mask ROM, read on all three methods and on both firmwares to the
   same md5, and checked against FlashGBX's own ROM database
 - **Game Boy**: ChisFlash MBC3 2 MiB flash cartridge, a generic AliExpress
-  flash cartridge, Pokemon Yellow repro, Pokemon Gold, Casper, and Rugrats
-  Time Travelers, the last of these a genuine mask ROM read six times across
-  both firmwares to the same md5
+  flash cartridge, Pokemon Yellow repro, Pokemon Gold, Casper (MBC1) and
+  Rugrats Time Travelers (MBC5). The last two are genuine mask ROMs, each read
+  six times across both firmwares to the same md5
+- **Game Boy, write-enable on the audio pin**: a DIY AM29F016 cartridge, ROM
+  written and verified. Reported by a third party on an approved board, not
+  tested here
 
 Every read was compared byte for byte against a dump taken with the stock
 firmware, and every write was verified.
@@ -299,16 +404,20 @@ firmware:
 
 - **Board revisions other than v1.3.** The installer accepts v1.0 to v1.3, but
   only v1.3 has been tested.
-- **MBC1 and MBC2**, the two commonest Game Boy mappers, along with MBC6, MBC7,
-  MMM01, HuC-1, HuC-3, TAMA5 and the unlicensed mappers. Only MBC3 and MBC5 have
-  been used.
-- **Game Boy flash cartridges that program through the audio pin** rather than
-  the normal write pin.
+- **MBC2**, and the less common mappers: MBC6, MBC7, MMM01, HuC-1, HuC-3, TAMA5
+  and the unlicensed ones. MBC1, MBC3 and MBC5 have been used.
 - **Mapper-specific save paths** for chips like the one in Kirby Tilt 'n'
   Tumble, and the boot handshake some cartridges need. That code is transcribed
   from the stock firmware and has never run against the hardware it exists for.
 - **Nintendo Power GB Memory cartridges**, Game Boy Camera, and cartridges with
-  rumble or an accelerometer.
+  rumble or an accelerometer. Rumble is worth a word: there is no rumble-specific
+  code in this firmware. FlashGBX stops the motor with ordinary cartridge writes,
+  which are exercised constantly, so a rumble cart is untested rather than
+  suspect.
+- **Flash cartridges other than ChisFlash**, plus one generic AliExpress board.
+  A different vendor's cart means a different flash chip, sector layout and
+  unlock sequence, which is what varies between flash carts far more than the
+  mapper does.
 - **Linux**, with a cartridge. It should be fine, since the device is a standard
   serial port, but nobody has dumped anything on it.
 - **GBA Video cartridges other than Shark Tale.** That whole path rests on one
@@ -352,3 +461,10 @@ Lesserkuma, for FlashGBX and the LK firmware skeleton this is built on.
 Charlie SIGMA and smellyghost on Discord, who tested this on approved GBFlash
 boards before there was one on this desk, and found a compatibility problem with
 the stock bootloader that would not have turned up on a clone.
+
+The firmware chooser in the updater is Charlie SIGMA's design, from a modified
+`hw_GBFlash.py` he sent: the two options, the wording of the warning, the
+confirmation defaulting to No, and disabling the controls while a write is
+running. The packaging under it differs. His merged both firmwares into the
+vendor's own zip; this one puts ours in its own zip beside it, so a FlashGBX
+upgrade cannot take the choice away and a stock zip still opens the dialog.

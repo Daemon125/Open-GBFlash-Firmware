@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.0.1
+
+Host-side fixes and a real build stamp. The cartridge paths are unchanged, so the
+speed figures for 1.0.0 still stand.
+
+### Fixed
+
+- Switching back to the stock firmware failed on Windows unless the U22 button
+  was held. The updater passed the port recorded before the handover, and the
+  bootloader takes a different COM number, so opening it threw and the failure
+  was reported as "No device found". The bootloader is now resolved by USB id
+  before any port is opened. No button press is needed on Windows or macOS.
+- A zip with a damaged `fw.bin` was offered by the firmware chooser and only
+  failed once the device was already in the bootloader. The image is now read
+  when the zip is inspected.
+- A malformed `fw.ini` in `res/fw_Open-GBFlash.zip` stopped the device being
+  connected at all, and stopped the updater opening to install anything else.
+
+### Added
+
+- The Firmware Updater offers a choice between the original firmware and
+  Open-GBFlash, each read from its own zip in `res/`. The chooser is Charlie
+  SIGMA's design. Without `res/fw_Open-GBFlash.zip` the dialog is upstream's,
+  unchanged.
+
+### Changed
+
+- The firmware reports its own build date instead of the stock one. FlashGBX
+  compares the device against `res/fw_Open-GBFlash.zip` and offers an update only
+  when that file is newer. `SkipOpenFirmwareUpdate = enabled` in `settings.ini`
+  silences the prompt.
+- FlashGBX's **About Open-GBFlash** window, the firmware chooser, the install
+  confirmation and the update-failure dialog give this project's page. The
+  GBFlash hardware page is still shown for hardware questions.
+
+### Measurements
+
+- The macOS Game Boy write row was re-measured, both firmwares through the same
+  host in one run: 33.81 s stock against 33.02 s here. The 1.0.0 table gives
+  33.16 s and 32.43 s for the same row, from a run whose host was not recorded.
+  The ratio is unchanged. Every other figure stands.
+
+### Documentation
+
+- The install steps offered FlashGBX's command line updater as an alternative to
+  the graphical one. It always writes `res/fw_GBFlash.zip`, so it installed the
+  stock firmware. The graphical updater is the only route.
+- The note that stock reads Game Boy cartridges 20% slower through this host file
+  on macOS no longer applies: the larger read buffer is negotiated only for this
+  firmware, and a stock device keeps FlashGBX's 4 KiB.
+
 ## 1.0.0
 
 First release. Based on the LK firmware skeleton, speaking the stock GBFlash
