@@ -302,6 +302,13 @@ FW_DMG_WRITE_STREAM ?= 1
 # clean baseline, 31.35 -> 29.95 s mean, 4.5%. Ships 0: both RMWs sit inside
 # intervals the cartridge acts on, so this spends waveform margin and putting the
 # cycles back as nops returns the whole gain.
+# Drop three stores per bus write that emit nothing: the /WR-high the previous
+# write already left high, the CLK-low that is "once and done" inside a burst,
+# and the PB_CLR half of setting the data byte. Every nop interval is kept, so no
+# window the cartridge measures changes width. Needs FW_DMG_SHADOW_PB.
+# NOT GATED ON HARDWARE.
+FW_DMG_WSF_LEAN ?= 0
+
 FW_DMG_DIR_HOIST ?= 0
 
 FW_DMG_SHADOW_PB ?= 0
@@ -601,6 +608,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_DMG_PROFILE=$(FW_DMG_PROFILE) \
           -DFW_DMG_SHADOW_PB=$(FW_DMG_SHADOW_PB) \
           -DFW_DMG_DIR_HOIST=$(FW_DMG_DIR_HOIST) \
+          -DFW_DMG_WSF_LEAN=$(FW_DMG_WSF_LEAN) \
           -DFW_DMG_WRITE_STREAM=$(FW_DMG_WRITE_STREAM) \
           -DFW_DMG_A15_PAD=$(FW_DMG_A15_PAD) \
           -DFW_DMG_A15_NOTOGGLE=$(FW_DMG_A15_NOTOGGLE) \

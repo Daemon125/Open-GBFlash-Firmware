@@ -1227,6 +1227,10 @@ void fw_cart_dmg_status_poll_close(void)
  * run, then the confirm. Same scope as fw_cart_dmg_amd_program_byte: plain /WR,
  * no /CS pulse, bank-1 commands clear. D0..D7 are left driven; the status poll
  * releases them. [GATED] */
+#if !FW_DMG_SHADOW_PB && FW_DMG_WSF_LEAN
+#error "FW_DMG_WSF_LEAN needs FW_DMG_SHADOW_PB=1; it only edits the shadow path"
+#endif
+
 #if FW_DMG_SHADOW_PB
 /* PB_OUT is read-modify-written three times per bus write. Nothing outside this
  * file drives port B, and neither bl_usb_poll() nor the USB handler touches
@@ -1258,6 +1262,37 @@ void fw_cart_dmg_status_poll_close(void)
 #define DMG_WSF_PBDIR()  REG32(R32_PB_DIR) |= PB_ADDR_HI
 #endif
 
+/* Three stores per write emit nothing the cartridge can see.
+ *
+ *   /WR high at the top is already high: the previous write ended by raising it,
+ *   and the comment on dmg_write_stock_flash calls it a no-op in steady state.
+ *   CLK low is "once and done": inside a burst nothing drives it high again, so
+ *   36 of 37 clears change no pin.
+ *   The data byte takes a PB_CLR of all eight bits and then an OR of the value.
+ *   One store of the shadow does both; the intermediate zero is an artefact of
+ *   using PB_CLR, not a level the part is waiting for.
+ *
+ * FW_DMG_WSF_LEAN drops those three and keeps every nop interval, so no window
+ * the cartridge measures changes width. The first write of a load still needs
+ * the real CLK-low and /WR-high, which the load prologue now does once. */
+#if FW_DMG_WSF_LEAN
+#define DMG_WSF_SH(a, v) do {                                            \
+    BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
+    BUS_NOPS(FW_DMG_WR_CLK_NOPS);                                        \
+    DMG_WSF_PADIR();                                                     \
+    REG32(R32_PA_OUT)  = (a) & PA_AD_MASK;                               \
+    BUS_NOPS(FW_DMG_WR_AD_NOPS);                                         \
+    DMG_WSF_PBDIR();                                                     \
+    BUS_NOPS(FW_DMG_WR_DIR_NOPS);                                        \
+    pb = (pb & ~(uint32_t)PB_ADDR_HI) | ((uint32_t)(v) & PB_ADDR_HI);    \
+    REG32(R32_PB_OUT) = pb;                                              \
+    BUS_NOPS(FW_DMG_WR_DS_NOPS + FW_DMG_SHADOW_DS_PAD);                  \
+    REG32(R32_PB_CLR) = PB_WR;          pb &= ~(uint32_t)PB_WR;          \
+    BUS_NOPS_FIXED(FW_DMG_WR_PULSE_NOPS + (5 - FW_DMG_SHADOW_PULSE_F),   \
+                   FW_DMG_SHADOW_PULSE_F);                               \
+    pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
+} while (0)
+#else
 #define DMG_WSF_SH(a, v) do {                                            \
     pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
     BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
@@ -1276,16 +1311,25 @@ void fw_cart_dmg_status_poll_close(void)
                    FW_DMG_SHADOW_PULSE_F);                               \
     pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
 } while (0)
+#endif
 
 void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
                                     const uint16_t *cmd_val,
                                     uint32_t sa, uint32_t count,
                                     const uint8_t *data)
 {
+#if FW_DMG_WSF_LEAN
+    /* /WR high and CLK low once for the load, where each write repeated them. */
+    uint32_t pb = REG32(R32_PB_OUT) | PB_RD | PB_WR;
+#else
     uint32_t pb = REG32(R32_PB_OUT) | PB_RD;
+#endif
     uint32_t x;
 
     REG32(R32_PB_OUT) = pb;
+#if FW_DMG_WSF_LEAN
+    REG32(R32_PB_CLR) = PB_CLK; pb &= ~(uint32_t)PB_CLK;
+#endif
 #if FW_DMG_DIR_HOIST
     REG32(R32_PA_DIR) |= PA_AD_MASK;
     REG32(R32_PB_DIR) |= PB_ADDR_HI;
