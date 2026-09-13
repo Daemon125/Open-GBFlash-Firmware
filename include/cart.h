@@ -87,6 +87,14 @@ int g_dmg_we_is_wr(void);
 void fw_cart_dmg_amd_program_byte(const uint32_t *cmd_addr,
                                   const uint16_t *cmd_val,
                                   uint32_t pa, uint8_t pd);
+void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
+                                    const uint16_t *cmd_val,
+                                    uint32_t sa, uint32_t count,
+                                    const uint8_t *data);
+void fw_cart_dmg_amd_bypass_enter(const uint32_t *cmd_addr,
+                                  const uint16_t *cmd_val);
+void fw_cart_dmg_amd_bypass_byte(uint16_t a0, uint32_t pa, uint8_t pd);
+void fw_cart_dmg_amd_bypass_exit(uint32_t pa);
 void fw_cart_dmg_write_burst_release(void);
 #endif
 #if FW_DMG_POLL_TIGHT

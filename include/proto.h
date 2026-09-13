@@ -37,6 +37,9 @@
 #define CMD_DMG_FLASH_WRITE_BYTE    0xD1u
 #define CMD_AGB_FLASH_WRITE_SHORT   0xD2u
 #define CMD_FLASH_PROGRAM           0xD3u
+#if FW_DMG_PROFILE
+#define CMD_PROFILE_READ            0xDFu
+#endif
 #define CMD_CART_WRITE_FLASH_CMD    0xD4u
 #define CMD_AGB_CART_READ           0xC1u
 #define CMD_BOOTLOADER_RESET        0xF1u
@@ -325,7 +328,9 @@ void fw_proto_link_reset(fw_state_t *st);
 const uint8_t *fw_proto_payload(void);
 
 /* Largest inbound payload: the host's MAX_BUFFER_WRITE. */
+#ifndef FW_PAYLOAD_MAX
 #define FW_PAYLOAD_MAX  0x800u
+#endif
 
 uint32_t fw_proto_fw_info(const fw_state_t *st, uint8_t *out);
 

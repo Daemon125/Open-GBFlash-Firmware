@@ -1208,6 +1208,118 @@ void fw_cart_dmg_status_poll_close(void)
     REG32(R32_PB_OUT) |= PB_RD;
 }
 
+/* One AMD write-buffer load: unlock pair, buffer-load at SA, count-1, the data
+ * run, then the confirm. Same scope as fw_cart_dmg_amd_program_byte: plain /WR,
+ * no /CS pulse, bank-1 commands clear. D0..D7 are left driven; the status poll
+ * releases them. [GATED] */
+#if FW_DMG_SHADOW_PB
+/* PB_OUT is read-modify-written three times per bus write. Nothing outside this
+ * file drives port B, and neither bl_usb_poll() nor the USB handler touches
+ * GPIO, so its state is held in a register across one load and stored directly.
+ * The peripheral read is what costs; the stores keep the same edge order. The
+ * shadow is re-read per load, which bounds staleness to one load.
+ * FW_DMG_SHADOW_WRHI/DS/PULSE_PAD put back the cycles the dropped loads held in
+ * the three intervals they sat in. */
+#ifndef FW_DMG_SHADOW_WRHI_PAD
+#define FW_DMG_SHADOW_WRHI_PAD  0u
+#endif
+#ifndef FW_DMG_SHADOW_DS_PAD
+#define FW_DMG_SHADOW_DS_PAD    0u
+#endif
+#ifndef FW_DMG_SHADOW_PULSE_F
+#define FW_DMG_SHADOW_PULSE_F   2
+#endif
+
+#define DMG_WSF_SH(a, v) do {                                            \
+    pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
+    BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
+    REG32(R32_PB_CLR) = PB_CLK;         pb &= ~(uint32_t)PB_CLK;         \
+    BUS_NOPS(FW_DMG_WR_CLK_NOPS);                                        \
+    REG32(R32_PA_DIR) |= PA_AD_MASK;                                     \
+    REG32(R32_PA_OUT)  = (a) & PA_AD_MASK;                               \
+    BUS_NOPS(FW_DMG_WR_AD_NOPS);                                         \
+    REG32(R32_PB_DIR) |= PB_ADDR_HI;                                     \
+    BUS_NOPS(FW_DMG_WR_DIR_NOPS);                                        \
+    REG32(R32_PB_CLR) = PB_ADDR_HI;     pb &= ~(uint32_t)PB_ADDR_HI;     \
+    pb |= (uint32_t)(v) & PB_ADDR_HI;   REG32(R32_PB_OUT) = pb;          \
+    BUS_NOPS(FW_DMG_WR_DS_NOPS + FW_DMG_SHADOW_DS_PAD);                  \
+    REG32(R32_PB_CLR) = PB_WR;          pb &= ~(uint32_t)PB_WR;          \
+    BUS_NOPS_FIXED(FW_DMG_WR_PULSE_NOPS + (5 - FW_DMG_SHADOW_PULSE_F),   \
+                   FW_DMG_SHADOW_PULSE_F);                               \
+    pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
+} while (0)
+
+void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
+                                    const uint16_t *cmd_val,
+                                    uint32_t sa, uint32_t count,
+                                    const uint8_t *data)
+{
+    uint32_t pb = REG32(R32_PB_OUT) | PB_RD;
+    uint32_t x;
+
+    REG32(R32_PB_OUT) = pb;
+
+    DMG_WSF_SH(cmd_addr[0], cmd_val[0]);                /* AAA=AA */
+    DMG_WSF_SH(cmd_addr[1], cmd_val[1]);                /* 555=55 */
+    DMG_WSF_SH(sa,          cmd_val[2]);                /* SA=25  */
+    DMG_WSF_SH(sa,          count - 1u);                /* SA=BS  */
+
+    for (x = 0; x < count; x++) {
+        DMG_WSF_SH(sa + x, data[x]);                    /* PA=PD  */
+    }
+
+    DMG_WSF_SH(sa, cmd_val[5]);                         /* SA=29  */
+}
+#else
+void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
+                                    const uint16_t *cmd_val,
+                                    uint32_t sa, uint32_t count,
+                                    const uint8_t *data)
+{
+    uint32_t x;
+
+    REG32(R32_PB_OUT) |= PB_RD;
+
+    dmg_write_stock_flash(cmd_addr[0], cmd_val[0]);     /* AAA=AA */
+    dmg_write_stock_flash(cmd_addr[1], cmd_val[1]);     /* 555=55 */
+    dmg_write_stock_flash(sa,          cmd_val[2]);     /* SA=25  */
+    dmg_write_stock_flash(sa,          count - 1u);     /* SA=BS  */
+
+    for (x = 0; x < count; x++) {
+        dmg_write_stock_flash(sa + x, data[x]);         /* PA=PD  */
+    }
+
+    dmg_write_stock_flash(sa, cmd_val[5]);              /* SA=29  */
+}
+#endif
+
+/* AMD unlock bypass. Between enter and exit a program is A0 then the byte, so
+ * the two unlock writes drop off every byte in the run. The mode persists across
+ * reads, so the status poll runs inside it. Anything else the chip is asked to
+ * do, erase included, needs the exit first. */
+void fw_cart_dmg_amd_bypass_enter(const uint32_t *cmd_addr,
+                                  const uint16_t *cmd_val)
+{
+    REG32(R32_PB_OUT) |= PB_RD;
+    dmg_write_stock_flash(cmd_addr[0], cmd_val[0]);     /* AAA=AA */
+    dmg_write_stock_flash(cmd_addr[1], cmd_val[1]);     /* 555=55 */
+    dmg_write_stock_flash(cmd_addr[0], 0x20u);          /* AAA=20 */
+}
+
+void fw_cart_dmg_amd_bypass_byte(uint16_t a0, uint32_t pa, uint8_t pd)
+{
+    REG32(R32_PB_OUT) |= PB_RD;
+    dmg_write_stock_flash(pa, a0);                      /* PA=A0  */
+    dmg_write_stock_flash(pa, pd);                      /* PA=PD  */
+}
+
+void fw_cart_dmg_amd_bypass_exit(uint32_t pa)
+{
+    REG32(R32_PB_OUT) |= PB_RD;
+    dmg_write_stock_flash(pa, 0x90u);
+    dmg_write_stock_flash(pa, 0x00u);
+}
+
 /* Release what the burst left driven: the error exit and the end of a block. */
 void fw_cart_dmg_write_burst_release(void)
 {

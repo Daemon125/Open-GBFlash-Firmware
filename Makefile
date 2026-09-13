@@ -258,6 +258,47 @@ FW_DMG_POLL_TIGHT ?= 1
 # what is actually sent for a real 2 MiB Game Boy ROM.
 FW_DMG_SKIP_FF ?= 1
 
+# Use the lean write primitive for an AMD write-buffer load, as
+# FW_DMG_WRITE_BURST already does for a single byte. A 32-byte load is 37 bus
+# writes; through dmg_write_raw they cost more than the chip spends programming.
+# Needs FW_DMG_WRITE_BURST: the lean primitive and g_dmg_we_is_wr() are inside it.
+# The part measured here reports CFI buffer_write_time_avg 128 us against the
+# 419 us a load actually took.
+# GATED ON HARDWARE: 8 MiB MBC3+RTC cart, S29GL-class, 2 MiB write byte-exact
+# 3/3 with it and 3/3 without. 35.37 -> 30.52 s mean of three, ranges 0.08 and
+# 0.65 s wide. Only the buffered path: a cart on single writes is unaffected.
+FW_DMG_BUF_BURST ?= 1
+
+# AMD unlock bypass on the DMG single-write path: enter once per payload and a
+# program becomes A0 then the byte, dropping the two unlock writes from every
+# byte in the run. The chip must be taken out of it before anything else,
+# including erase; the exit covers the error break too.
+# Needs FW_DMG_WRITE_BURST for the lean primitive.
+# GATED ON HARDWARE: 8 MiB MBC3+RTC cart, S29GL-class, single-write path forced
+# through a profile carrying no buffer_write. 2 MiB 76.63 -> 67.63 s, 11.7%, ROM
+# byte-exact every run, then four save round trips alternating two images after a
+# bypass write, 4/4 matching. That save test is what caught the AGB attempt.
+# A chip without bypass ignores the A0 and its bytes fail verification, so the
+# failure mode is a refused write rather than silent corruption.
+FW_DMG_UNLOCK_BYPASS ?= 1
+
+# Cycle counters around the buffered load and its status wait, read back through
+# opcode 0xDF. Measurement only; never ship it.
+# Hold PB_OUT in a register across one buffered load instead of read-modify-
+# writing it three times per bus write. Port B is driven only from cart.c and no
+# interrupt path touches GPIO. NOT GATED ON HARDWARE.
+# Program a DMG buffer load as it arrives instead of waiting for the whole
+# payload, the counterpart of the AGB pump. Receive and programming are
+# otherwise strictly serialised. The gain is small because the CPU cannot drain
+# USB and drive the cartridge at once, so the two add rather than overlap.
+# GATED ON HARDWARE: 8 MiB MBC3+RTC cart, 2 MiB 30.92 -> 30.28 s mean of two,
+# byte-exact, then four save round trips alternating two images, 4/4 matching.
+FW_DMG_WRITE_STREAM ?= 1
+
+FW_DMG_SHADOW_PB ?= 0
+
+FW_DMG_PROFILE ?= 0
+
 # Restore the live write-enable selector from the var-state blob. It must be
 # flash_we_pin_var, the field main.c applies through we_pin_requested, not the
 # dead flash_we_pin: 26 shipped DMG profiles select AUDIO, and on those a
@@ -528,6 +569,11 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_DMG_WRITE_BURST=$(FW_DMG_WRITE_BURST) \
           -DFW_DMG_POLL_TIGHT=$(FW_DMG_POLL_TIGHT) \
           -DFW_DMG_SKIP_FF=$(FW_DMG_SKIP_FF) \
+          -DFW_DMG_BUF_BURST=$(FW_DMG_BUF_BURST) \
+          -DFW_DMG_UNLOCK_BYPASS=$(FW_DMG_UNLOCK_BYPASS) \
+          -DFW_DMG_PROFILE=$(FW_DMG_PROFILE) \
+          -DFW_DMG_SHADOW_PB=$(FW_DMG_SHADOW_PB) \
+          -DFW_DMG_WRITE_STREAM=$(FW_DMG_WRITE_STREAM) \
           -DFW_DMG_A15_PAD=$(FW_DMG_A15_PAD) \
           -DFW_DMG_WRITE_RAW_PAD=$(FW_DMG_WRITE_RAW_PAD) \
           -DFW_DMG_CS_READ_PAD=$(FW_DMG_CS_READ_PAD) \

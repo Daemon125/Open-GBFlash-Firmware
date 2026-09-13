@@ -18,6 +18,55 @@
 
 static uint8_t g_reply[FW_MAX_TRANSFER] __attribute__((aligned(4)));
 
+#if FW_DMG_PROFILE
+/* SysTick is free running, 24 bit, counting down at Fsys. One lap is 419 ms at
+ * 40 MHz, so a buffer load never wraps it. */
+uint32_t g_prof_loads, g_prof_cyc_load, g_prof_cyc_poll, g_prof_poll_iters;
+uint32_t g_prof_cmds, g_prof_cyc_cmd;
+uint32_t g_prof_rd_bytes, g_prof_cyc_rd_bus, g_prof_cyc_rd_pub;
+
+/* Stack high-water. The free region runs from __heap_end up to __stack_top;
+ * fill it once at startup, below this frame, and count back from the top to the
+ * first word still holding the pattern. */
+extern uint32_t __heap_end;
+
+#define PROF_STACK_PAT  0xC0DEC0DEu
+
+void fw_prof_stack_fill(void)
+{
+    uint32_t sp;
+    uint32_t *p = &__heap_end;
+    uint32_t *end;
+
+    __asm__ volatile ("mov %0, sp" : "=r" (sp));
+    end = (uint32_t *)(uintptr_t)((sp - 256u) & ~3u);
+    while (p < end) {
+        *p++ = PROF_STACK_PAT;
+    }
+}
+
+uint32_t fw_prof_stack_highwater(void)
+{
+    const uint32_t *p = &__heap_end;
+    const uint32_t *top = (const uint32_t *)(uintptr_t)0x20008000u;
+
+    while (p < top && *p == PROF_STACK_PAT) {
+        p++;
+    }
+    return (uint32_t)((uintptr_t)top - (uintptr_t)p);
+}
+
+static inline uint32_t prof_now(void)
+{
+    return (*(volatile uint32_t *)0xE000E018u) & 0x00FFFFFFu;
+}
+
+static inline uint32_t prof_delta(uint32_t start)
+{
+    return (start - prof_now()) & 0x00FFFFFFu;
+}
+#endif
+
 static fw_state_t g_state;
 
 /* v1.3 only. PB22 is the strap but also the cart VCC enable, and v1.2 needs the
@@ -774,11 +823,22 @@ static void do_dmg_read(fw_state_t *st)
             while (sub < want) {
                 uint32_t g = (want - sub > FW_DMG_PUB_GRAIN)
                              ? (uint32_t)FW_DMG_PUB_GRAIN : (want - sub);
+#if FW_DMG_PROFILE
+                uint32_t prof_r0 = prof_now();
+#endif
                 (void)fw_cart_dmg_read(st->address + off + sub, p + sub, g,
                                        st->dmg_read_method,
                                        st->dmg_read_cs_pulse);
+#if FW_DMG_PROFILE
+                g_prof_cyc_rd_bus += prof_delta(prof_r0);
+                g_prof_rd_bytes += g;
+                prof_r0 = prof_now();
+#endif
                 sub += g;
                 bl_usb_tx_direct_publish((uint16_t)(off + sub));
+#if FW_DMG_PROFILE
+                g_prof_cyc_rd_pub += prof_delta(prof_r0);
+#endif
             }
         }
 #else
@@ -1022,6 +1082,7 @@ static void agb_stream_pump(fw_state_t *st)
 
 /* The DMG completion poll. AMD data-polls (LK.c:1196-1221); Intel and Sharp use
  * the host's mask/value (:1222-1245). No 0x70 pre-write here, unlike AGB. */
+
 static uint32_t dmg_status_wait(fw_state_t *st, uint32_t addr, uint8_t want)
 {
     uint32_t deadline = bl_time_ms() + 500u;
@@ -1035,6 +1096,9 @@ static uint32_t dmg_status_wait(fw_state_t *st, uint32_t addr, uint8_t want)
         fw_cart_dmg_status_poll_open();
         for (;;) {
             uint8_t v = fw_cart_dmg_status_poll_read(addr);
+#if FW_DMG_PROFILE
+            g_prof_poll_iters++;
+#endif
             if (v == want) {
                 fw_cart_dmg_status_poll_close();
                 return 1u;
@@ -1108,6 +1172,15 @@ static uint32_t dmg_program_unbuffered(fw_state_t *st, const uint8_t *data,
     const uint32_t *cmd_a = st->flash_cmd_addr;
     const uint16_t *cmd_v = st->flash_cmd_val;
 #endif
+#if FW_DMG_UNLOCK_BYPASS && FW_DMG_WRITE_BURST
+    /* Entered once for the whole payload. The host erases through its own
+     * command, so no erase lands between the enter and the exit below. */
+    const uint32_t bypass = (amd && burst_ok) ? 1u : 0u;
+
+    if (bypass) {
+        fw_cart_dmg_amd_bypass_enter(cmd_a, cmd_v);
+    }
+#endif
 
     for (i = 0; i < n; i++) {
         uint32_t addr = st->address + i;
@@ -1123,6 +1196,11 @@ static uint32_t dmg_program_unbuffered(fw_state_t *st, const uint8_t *data,
             if (st->flash_commands_bank_1) {
                 dmg_apply_bank_change(st, 1u);
             }
+#if FW_DMG_UNLOCK_BYPASS && FW_DMG_WRITE_BURST
+            if (bypass) {
+                fw_cart_dmg_amd_bypass_byte(cmd_v[2], addr, data[i]);
+            } else
+#endif
 #if FW_DMG_WRITE_BURST
             /* Plain /WR, no /CS pulse: the bank-1 variant needs its bank change
              * between the third command and the data write. */
@@ -1177,6 +1255,12 @@ static uint32_t dmg_program_unbuffered(fw_state_t *st, const uint8_t *data,
         }
         bl_usb_poll();
     }
+#if FW_DMG_UNLOCK_BYPASS && FW_DMG_WRITE_BURST
+    /* Covers the break above as well: the chip must not be left in bypass. */
+    if (bypass) {
+        fw_cart_dmg_amd_bypass_exit(st->address);
+    }
+#endif
 #if FW_DMG_WRITE_BURST
     /* The burst leaves D0..D7 driven; this covers the exits that do not end in
      * a poll. A data bus left driven is hazard H1. */
@@ -1188,70 +1272,158 @@ static uint32_t dmg_program_unbuffered(fw_state_t *st, const uint8_t *data,
 
 /* FLASH_METHOD 2 on DMG, LK.c:1885-1962. buffer_size is in bytes on DMG and
  * halfwords on AGB (LK.c:1889 vs :1894). */
-static uint32_t dmg_program_buffered(fw_state_t *st, const uint8_t *data,
-                                     uint32_t n)
+/* One buffer load at st->address + off, then its status wait. Shared by the
+ * streaming pump and the tail, or the two would disagree on where a load
+ * starts. */
+static uint32_t dmg_program_chunk(fw_state_t *st, const uint8_t *data,
+                                  uint32_t off, uint32_t have)
 {
     uint32_t amd = (st->flash_command_set == 1u);
+    uint32_t sa = st->address + off;
+    uint32_t x;
+    uint32_t used_burst = 0u;
+#if FW_DMG_BUF_BURST && FW_DMG_WRITE_BURST
+    const uint32_t buf_burst = (!st->flash_commands_bank_1
+                                && !st->dmg_write_cs_pulse
+                                && !st->flash_pulse_reset
+                                && g_dmg_we_is_wr()) ? 1u : 0u;
+#endif
+#if FW_DMG_PROFILE
+    uint32_t prof_t0 = prof_now();
+#endif
+
+#if FW_DMG_BUF_BURST && FW_DMG_WRITE_BURST
+    if (amd && buf_burst) {
+        fw_cart_dmg_amd_program_buffer(st->flash_cmd_addr, st->flash_cmd_val,
+                                       sa, have, &data[off]);
+        used_burst = 1u;
+    }
+#endif
+    if (used_burst) {
+        /* the whole load is done */
+    } else if (amd) {
+        fw_cart_dmg_flash_write(st->flash_cmd_addr[0],
+                                (uint8_t)st->flash_cmd_val[0],
+                                st->dmg_write_cs_pulse);    /* AAA=AA */
+        fw_cart_dmg_flash_write(st->flash_cmd_addr[1],
+                                (uint8_t)st->flash_cmd_val[1],
+                                st->dmg_write_cs_pulse);    /* 555=55 */
+        fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[2],
+                                st->dmg_write_cs_pulse);    /* SA=25  */
+        fw_cart_dmg_flash_write(sa, (uint8_t)(have - 1u),
+                                st->dmg_write_cs_pulse);    /* SA=BS  */
+    } else {
+        fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[0],
+                                st->dmg_write_cs_pulse);    /* SA=E8  */
+        if (st->flash_sharp_verify_sr) {
+            /* Sharp answers status before it means anything; wait a fixed
+             * 10 us instead, 320 nops at 32 MHz. LK.c:1967-1972. */
+            fw_cart_delay_nops(320u);
+        } else if (!dmg_status_wait(st, sa, 0u)) {
+            return 0u;
+        }
+        fw_cart_dmg_flash_write(sa, (uint8_t)(have - 1u),
+                                st->dmg_write_cs_pulse);    /* SA=BS  */
+    }
+
+    if (!used_burst) {
+        for (x = 0; x < have; x++) {
+            fw_cart_dmg_flash_write(sa + x, data[off + x],
+                                    st->dmg_write_cs_pulse);  /* PA=PD  */
+        }
+    }
+
+    if (amd) {
+        if (!used_burst) {
+            fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[5],
+                                    st->dmg_write_cs_pulse);  /* SA=29  */
+        }
+#if FW_DMG_PROFILE
+        g_prof_cyc_load += prof_delta(prof_t0);
+        g_prof_loads++;
+        prof_t0 = prof_now();
+#endif
+        /* The last byte: an AMD buffer retires as a unit. LK.c:1957. */
+        if (!dmg_status_wait(st, sa + have - 1u, data[off + have - 1u])) {
+            return 0u;
+        }
+#if FW_DMG_PROFILE
+        g_prof_cyc_poll += prof_delta(prof_t0);
+#endif
+    } else {
+        fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[3],
+                                st->dmg_write_cs_pulse);    /* SA=D0  */
+        if (!dmg_status_wait(st, sa, 0u)) {
+            return 0u;
+        }
+        fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[4],
+                                st->dmg_write_cs_pulse);    /* SA=FF  */
+    }
+    return 1u;
+}
+
+/* Program what has arrived while the rest arrives, the DMG counterpart of
+ * agb_stream_pump(). Buffered method 2 only. */
+static void dmg_stream_pump(fw_state_t *st)
+{
+#if FW_DMG_WRITE_STREAM
+    uint32_t filled = fw_proto_payload_filled();
+    uint32_t chunk;
+
+    if (filled == 0u) {
+        return;
+    }
+    if (st->mode == FW_MODE_AGB || st->flash_method != 2u
+        || st->buffer_size < 1u) {
+        return;
+    }
+    if (st->program_stream_err) {
+        return;
+    }
+
+    chunk = st->buffer_size;
+
+    while (filled >= (uint32_t)st->program_done + chunk) {
+        if (st->program_done == 0u) {
+            st->program_streamed = 0u;
+        }
+        bl_usb_poll();
+        if (!dmg_program_chunk(st, fw_proto_payload(),
+                               st->program_done, chunk)) {
+            st->program_stream_err = 1u;
+            break;
+        }
+        st->program_done = (uint16_t)(st->program_done + chunk);
+        st->program_streamed++;
+    }
+#else
+    (void)st;
+#endif
+}
+
+static uint32_t dmg_program_buffered(fw_state_t *st, const uint8_t *data,
+                                     uint32_t n, uint32_t stream_done,
+                                     uint32_t stream_err)
+{
     uint32_t bs = st->buffer_size;
     uint32_t ok = 1u;
-    uint32_t done = 0u;
+    uint32_t done = stream_done;
+
+    /* The pump stopped on a failed load; resuming re-enters an aborted part. */
+    if (stream_err) {
+        st->address += n;
+        return 0u;
+    }
 
     while (done < n) {
         uint32_t have = n - done;
-        uint32_t sa = st->address + done;
-        uint32_t x;
 
         if (have > bs) {
             have = bs;
         }
-        if (amd) {
-            fw_cart_dmg_flash_write(st->flash_cmd_addr[0],
-                                    (uint8_t)st->flash_cmd_val[0],
-                                    st->dmg_write_cs_pulse);    /* AAA=AA */
-            fw_cart_dmg_flash_write(st->flash_cmd_addr[1],
-                                    (uint8_t)st->flash_cmd_val[1],
-                                    st->dmg_write_cs_pulse);    /* 555=55 */
-            fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[2],
-                                    st->dmg_write_cs_pulse);    /* SA=25  */
-            fw_cart_dmg_flash_write(sa, (uint8_t)(have - 1u),
-                                    st->dmg_write_cs_pulse);    /* SA=BS  */
-        } else {
-            fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[0],
-                                    st->dmg_write_cs_pulse);    /* SA=E8  */
-            if (st->flash_sharp_verify_sr) {
-                /* Sharp answers status before it means anything; wait a fixed
-                 * 10 us instead, 320 nops at 32 MHz. LK.c:1967-1972. */
-                fw_cart_delay_nops(320u);
-            } else if (!dmg_status_wait(st, sa, 0u)) {
-                ok = 0u;
-                break;
-            }
-            fw_cart_dmg_flash_write(sa, (uint8_t)(have - 1u),
-                                    st->dmg_write_cs_pulse);    /* SA=BS  */
-        }
-
-        for (x = 0; x < have; x++) {
-            fw_cart_dmg_flash_write(sa + x, data[done + x],
-                                    st->dmg_write_cs_pulse);    /* PA=PD  */
-        }
-
-        if (amd) {
-            fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[5],
-                                    st->dmg_write_cs_pulse);    /* SA=29  */
-            /* The last byte: an AMD buffer retires as a unit. LK.c:1957. */
-            if (!dmg_status_wait(st, sa + have - 1u, data[done + have - 1u])) {
-                ok = 0u;
-                break;
-            }
-        } else {
-            fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[3],
-                                    st->dmg_write_cs_pulse);    /* SA=D0  */
-            if (!dmg_status_wait(st, sa, 0u)) {
-                ok = 0u;
-                break;
-            }
-            fw_cart_dmg_flash_write(sa, (uint8_t)st->flash_cmd_val[4],
-                                    st->dmg_write_cs_pulse);    /* SA=FF  */
+        if (!dmg_program_chunk(st, data, done, have)) {
+            ok = 0u;
+            break;
         }
         done += have;
         bl_usb_poll();
@@ -1264,6 +1436,15 @@ static uint32_t dmg_program_buffered(fw_state_t *st, const uint8_t *data,
  * the host answers by reading STATUS_REGISTER back. */
 static uint32_t do_flash_program(fw_state_t *st)
 {
+#if FW_DMG_PROFILE
+    uint32_t prof_cmd_t0 = prof_now();
+    uint32_t prof_ret;
+#define PROF_CMD_RET(v) do { prof_ret = (v); \
+        g_prof_cyc_cmd += prof_delta(prof_cmd_t0); g_prof_cmds++; \
+        return prof_ret; } while (0)
+#else
+#define PROF_CMD_RET(v) return (v)
+#endif
     const uint8_t *data = fw_proto_payload();
     uint32_t n = st->program_len;
     uint32_t i;
@@ -1374,9 +1555,10 @@ static uint32_t do_flash_program(fw_state_t *st)
         /* method 2 with buffer_size 0 would loop on a zero-length chunk. */
         (void)i;
         if (st->flash_method == 2u && st->buffer_size >= 1u) {
-            return dmg_program_buffered(st, data, n);
+            PROF_CMD_RET(dmg_program_buffered(st, data, n,
+                                              stream_done, stream_err));
         }
-        return dmg_program_unbuffered(st, data, n);
+        PROF_CMD_RET(dmg_program_unbuffered(st, data, n));
     }
 }
 
@@ -1650,6 +1832,9 @@ static void fw_usb_irq_tick(void)
 
 void fw_main(void)
 {
+#if FW_DMG_PROFILE
+    fw_prof_stack_fill();
+#endif
     uint8_t rx[64];
     int was_configured;
 
@@ -1720,6 +1905,7 @@ void fw_main(void)
             while ((n == 0u) && (fw_proto_payload_remaining() != 0u)) {
                 /* The endpoint is empty mid-block: flash-chip time. */
                 agb_stream_pump(&g_state);
+                dmg_stream_pump(&g_state);
                 bl_usb_poll();
                 n = bl_usb_rx(rx, sizeof(rx));
                 if ((n == 0u) && ((int32_t)(bl_time_ms() - deadline) >= 0)) {
@@ -1770,6 +1956,7 @@ void fw_main(void)
                 }
 #endif
                 agb_stream_pump(&g_state);
+                dmg_stream_pump(&g_state);
             } else {
                 out = fw_proto_feed(&g_state, rx[i], g_reply);
                 i++;

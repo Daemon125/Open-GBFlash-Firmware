@@ -159,6 +159,19 @@ def test_nothing_else_in_cart_c_can_raise_the_rail(c):
          lambda: c.lib.fw_cart_dmg_amd_program_byte(
              (ctypes.c_uint32 * 3)(0x5555, 0x2AAA, 0x5555),
              (ctypes.c_uint16 * 3)(0xAA, 0x55, 0xA0), 0x1234, 0x5A)),
+        ("fw_cart_dmg_amd_program_buffer",
+         lambda: c.lib.fw_cart_dmg_amd_program_buffer(
+             (ctypes.c_uint32 * 6)(0x5555, 0x2AAA, 0, 0, 0, 0),
+             (ctypes.c_uint16 * 6)(0xAA, 0x55, 0x25, 0, 0, 0x29),
+             0x1234, 4, (ctypes.c_uint8 * 4)(1, 2, 3, 4))),
+        ("fw_cart_dmg_amd_bypass_enter",
+         lambda: c.lib.fw_cart_dmg_amd_bypass_enter(
+             (ctypes.c_uint32 * 2)(0x5555, 0x2AAA),
+             (ctypes.c_uint16 * 2)(0xAA, 0x55))),
+        ("fw_cart_dmg_amd_bypass_byte",
+         lambda: c.lib.fw_cart_dmg_amd_bypass_byte(0xA0, 0x1234, 0x5A)),
+        ("fw_cart_dmg_amd_bypass_exit",
+         lambda: c.lib.fw_cart_dmg_amd_bypass_exit(0x1234)),
         ("fw_cart_dmg_write_burst_release",
          lambda: c.lib.fw_cart_dmg_write_burst_release()),
         ("fw_cart_dmg_status_poll_open",

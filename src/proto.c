@@ -449,6 +449,37 @@ static uint32_t execute(fw_state_t *st, uint8_t *out)
         out[0] = 0u;
         return 1u;
 
+#if FW_DMG_PROFILE
+    case CMD_PROFILE_READ: {
+        extern uint32_t g_prof_loads, g_prof_cyc_load,
+                        g_prof_cyc_poll, g_prof_poll_iters,
+                        g_prof_cmds, g_prof_cyc_cmd,
+                        g_prof_rd_bytes, g_prof_cyc_rd_bus,
+                        g_prof_cyc_rd_pub;
+        extern uint32_t fw_prof_stack_highwater(void);
+        const uint32_t v[10] = { g_prof_loads, g_prof_cyc_load,
+                                 g_prof_cyc_poll, g_prof_poll_iters,
+                                 g_prof_cmds, g_prof_cyc_cmd,
+                                 fw_prof_stack_highwater(),
+                                 g_prof_rd_bytes, g_prof_cyc_rd_bus,
+                                 g_prof_cyc_rd_pub };
+        uint32_t k;
+
+        for (k = 0; k < 10u; k++) {
+            out[k * 4u + 0u] = (uint8_t)(v[k] >> 24);
+            out[k * 4u + 1u] = (uint8_t)(v[k] >> 16);
+            out[k * 4u + 2u] = (uint8_t)(v[k] >> 8);
+            out[k * 4u + 3u] = (uint8_t)v[k];
+        }
+        g_prof_loads = 0u; g_prof_cyc_load = 0u;
+        g_prof_cyc_poll = 0u; g_prof_poll_iters = 0u;
+        g_prof_cmds = 0u; g_prof_cyc_cmd = 0u;
+        g_prof_rd_bytes = 0u; g_prof_cyc_rd_bus = 0u;
+        g_prof_cyc_rd_pub = 0u;
+        return 40u;
+    }
+#endif
+
     case CMD_SET_FLASH_CMD: {
         /* Six (address, value) pairs to replay before each word. */
         uint32_t k;
