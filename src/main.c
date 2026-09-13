@@ -1083,6 +1083,10 @@ static void agb_stream_pump(fw_state_t *st)
 /* The DMG completion poll. AMD data-polls (LK.c:1196-1221); Intel and Sharp use
  * the host's mask/value (:1222-1245). No 0x70 pre-write here, unlike AGB. */
 
+#ifndef FW_DMG_POLL_STRIDE
+#define FW_DMG_POLL_STRIDE 1
+#endif
+
 static uint32_t dmg_status_wait(fw_state_t *st, uint32_t addr, uint8_t want)
 {
     uint32_t deadline = bl_time_ms() + 500u;
@@ -1093,6 +1097,8 @@ static uint32_t dmg_status_wait(fw_state_t *st, uint32_t addr, uint8_t want)
     /* The turnaround is hoisted out of the loop; the /RD-low to sample window
      * keeps its 8 nops, or an early sample calls a write finished. */
     if (amd) {
+        uint32_t tick = 0u;
+
         fw_cart_dmg_status_poll_open();
         for (;;) {
             uint8_t v = fw_cart_dmg_status_poll_read(addr);
@@ -1103,10 +1109,17 @@ static uint32_t dmg_status_wait(fw_state_t *st, uint32_t addr, uint8_t want)
                 fw_cart_dmg_status_poll_close();
                 return 1u;
             }
-            if ((int32_t)(bl_time_ms() - deadline) >= 0) {
-                fw_cart_dmg_status_poll_close();
-                st->status_register = v;
-                return 0u;
+            /* bl_time_ms() converts SysTick cycles to milliseconds and is the
+             * bulk of an iteration. The deadline is 500 ms; reading it once per
+             * FW_DMG_POLL_STRIDE samples cannot overrun it meaningfully. */
+            tick++;
+            if (tick >= (uint32_t)FW_DMG_POLL_STRIDE) {
+                tick = 0u;
+                if ((int32_t)(bl_time_ms() - deadline) >= 0) {
+                    fw_cart_dmg_status_poll_close();
+                    st->status_register = v;
+                    return 0u;
+                }
             }
             bl_usb_poll();
         }
