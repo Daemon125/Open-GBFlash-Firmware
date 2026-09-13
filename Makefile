@@ -295,6 +295,15 @@ FW_DMG_UNLOCK_BYPASS ?= 1
 # byte-exact, then four save round trips alternating two images, 4/4 matching.
 FW_DMG_WRITE_STREAM ?= 1
 
+# PA_DIR and PB_DIR are invariant across a buffered load but are read-modify-
+# written inside every one of its 37 bus writes. Needs FW_DMG_SHADOW_PB, which
+# owns the macro.
+# GATED ON HARDWARE: 2 MiB write byte-exact, interleaved two rounds against a
+# clean baseline, 31.35 -> 29.95 s mean, 4.5%. Ships 0: both RMWs sit inside
+# intervals the cartridge acts on, so this spends waveform margin and putting the
+# cycles back as nops returns the whole gain.
+FW_DMG_DIR_HOIST ?= 0
+
 FW_DMG_SHADOW_PB ?= 0
 
 FW_DMG_PROFILE ?= 0
@@ -573,6 +582,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_DMG_UNLOCK_BYPASS=$(FW_DMG_UNLOCK_BYPASS) \
           -DFW_DMG_PROFILE=$(FW_DMG_PROFILE) \
           -DFW_DMG_SHADOW_PB=$(FW_DMG_SHADOW_PB) \
+          -DFW_DMG_DIR_HOIST=$(FW_DMG_DIR_HOIST) \
           -DFW_DMG_WRITE_STREAM=$(FW_DMG_WRITE_STREAM) \
           -DFW_DMG_A15_PAD=$(FW_DMG_A15_PAD) \
           -DFW_DMG_WRITE_RAW_PAD=$(FW_DMG_WRITE_RAW_PAD) \

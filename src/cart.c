@@ -1230,15 +1230,28 @@ void fw_cart_dmg_status_poll_close(void)
 #define FW_DMG_SHADOW_PULSE_F   2
 #endif
 
+/* PA_DIR and PB_DIR do not change across a load, but sit inside the per-write
+ * sequence as read-modify-writes. Hoisting both to the top of the load removes
+ * two of those from each of 37 writes. They sit in intervals the cartridge acts
+ * on, CLK-low to address and address to data, so this spends waveform margin:
+ * putting the cycles back as nops returns the whole gain. */
+#if FW_DMG_DIR_HOIST
+#define DMG_WSF_PADIR()  ((void)0)
+#define DMG_WSF_PBDIR()  ((void)0)
+#else
+#define DMG_WSF_PADIR()  REG32(R32_PA_DIR) |= PA_AD_MASK
+#define DMG_WSF_PBDIR()  REG32(R32_PB_DIR) |= PB_ADDR_HI
+#endif
+
 #define DMG_WSF_SH(a, v) do {                                            \
     pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
     BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
     REG32(R32_PB_CLR) = PB_CLK;         pb &= ~(uint32_t)PB_CLK;         \
     BUS_NOPS(FW_DMG_WR_CLK_NOPS);                                        \
-    REG32(R32_PA_DIR) |= PA_AD_MASK;                                     \
+    DMG_WSF_PADIR();                                                     \
     REG32(R32_PA_OUT)  = (a) & PA_AD_MASK;                               \
     BUS_NOPS(FW_DMG_WR_AD_NOPS);                                         \
-    REG32(R32_PB_DIR) |= PB_ADDR_HI;                                     \
+    DMG_WSF_PBDIR();                                                     \
     BUS_NOPS(FW_DMG_WR_DIR_NOPS);                                        \
     REG32(R32_PB_CLR) = PB_ADDR_HI;     pb &= ~(uint32_t)PB_ADDR_HI;     \
     pb |= (uint32_t)(v) & PB_ADDR_HI;   REG32(R32_PB_OUT) = pb;          \
@@ -1258,6 +1271,10 @@ void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
     uint32_t x;
 
     REG32(R32_PB_OUT) = pb;
+#if FW_DMG_DIR_HOIST
+    REG32(R32_PA_DIR) |= PA_AD_MASK;
+    REG32(R32_PB_DIR) |= PB_ADDR_HI;
+#endif
 
     DMG_WSF_SH(cmd_addr[0], cmd_val[0]);                /* AAA=AA */
     DMG_WSF_SH(cmd_addr[1], cmd_val[1]);                /* 555=55 */
