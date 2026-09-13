@@ -295,23 +295,40 @@ FW_DMG_UNLOCK_BYPASS ?= 1
 # byte-exact, then four save round trips alternating two images, 4/4 matching.
 FW_DMG_WRITE_STREAM ?= 1
 
+# Three knobs that share one target: the core work inside a buffered load's 37
+# bus writes. They compose, and the combination is worth far more than the parts
+# because each one frees registers the next would otherwise spill. Cycles per
+# load under FW_DMG_PROFILE, one DMG cart, 2 MiB writes verified byte-exact:
+#
+#   shipped default                              4294.0
+#   SHADOW_PB                                    4075.3   -5.1%
+#   SHADOW_PB WSF_LEAN                           3724.3  -13.3%
+#   SHADOW_PB WSF_LEAN DIR_HOIST                 3028.5  -29.5%
+#
+# The last is 2.1 s of a 2 MiB write (33.09 -> 30.97 s wall). Poll time is flat
+# across all four, so none of it is traded into the chip. All three ship 0: what
+# they remove is core work sitting inside intervals the cartridge acts on, so
+# they spend waveform margin, and putting the cycles back as nops returns the
+# whole gain. How much margin that cart has is measured in
+# docs/dmg-write-timing.md.
+
+# PB_OUT is read-modify-written three times per bus write; hold it in a register.
+FW_DMG_SHADOW_PB ?= 0
+
 # PA_DIR and PB_DIR are invariant across a buffered load but are read-modify-
 # written inside every one of its 37 bus writes. Needs FW_DMG_SHADOW_PB, which
 # owns the macro.
 # GATED ON HARDWARE: 2 MiB write byte-exact, interleaved two rounds against a
-# clean baseline, 31.35 -> 29.95 s mean, 4.5%. Ships 0: both RMWs sit inside
-# intervals the cartridge acts on, so this spends waveform margin and putting the
-# cycles back as nops returns the whole gain.
-# Drop three stores per bus write that emit nothing: the /WR-high the previous
-# write already left high, the CLK-low that is "once and done" inside a burst,
-# and the PB_CLR half of setting the data byte. Every nop interval is kept, so no
-# window the cartridge measures changes width. Needs FW_DMG_SHADOW_PB.
-# NOT GATED ON HARDWARE.
-FW_DMG_WSF_LEAN ?= 0
-
+# clean baseline, 31.35 -> 29.95 s mean, 4.5% alone.
 FW_DMG_DIR_HOIST ?= 0
 
-FW_DMG_SHADOW_PB ?= 0
+# Drop three stores per bus write that emit nothing: the /WR-high the previous
+# write already left high, the CLK-low that is "once and done" inside a burst,
+# and the PB_CLR half of setting the data byte. Every nop interval is kept, so
+# only the removed stores' own cycles leave the address-side windows. Needs
+# FW_DMG_SHADOW_PB.
+# GATED ON HARDWARE: two 2 MiB writes verified byte-exact.
+FW_DMG_WSF_LEAN ?= 0
 
 FW_DMG_PROFILE ?= 0
 
