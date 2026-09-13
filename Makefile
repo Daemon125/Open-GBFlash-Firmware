@@ -327,6 +327,24 @@ FW_VARSTATE_WE_PIN ?= 1
 # GATED ON HARDWARE: tools/verify_dmg_methods.py byte-exact over 2 MiB against
 # a vendor reference. A15 is the default DMG read method, so this is every GUI
 # DMG dump.
+# Drop the per-byte A15-high write from the A15 read. /RD is /OE and the
+# prologue holds it low, so a changed address presents new data after the access
+# time; the question is whether the A15 edge is a strobe the cartridge needs.
+# FW_DMG_A15_FLAT_NOPS is the settle that replaces it, measured floor 0 because
+# the method dispatch already carries about six cycles between the address write
+# and the sample.
+#
+# GATED ON ONE CARTRIDGE ONLY: 8 MiB MBC3+RTC, S29GL-class. Read leaf
+# 35.04 -> 26.47 cycles/byte, 24%. A 2 MiB dump does not move, it is wire-bound
+# at that point, but a 2 MiB WRITE goes 31.29 -> 30.76 s, 1.7%, because it reads
+# 4 MiB back through do_crc32 with no wire over it. tools/verify_dmg_methods.py
+# --compare: all three methods agree and match the reference over 256 KiB.
+#
+# Ships 0. Correctness risk, not a margin one: if any cartridge needs the A15
+# deselect its dumps are silently wrong. Needs other mappers and other boards
+# before the default moves.
+FW_DMG_A15_NOTOGGLE ?= 0
+
 FW_DMG_A15_PAD ?= 1
 
 # Put dmg_write_raw()'s four sub-stock intervals back. It is no longer the hot
@@ -585,6 +603,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_DMG_DIR_HOIST=$(FW_DMG_DIR_HOIST) \
           -DFW_DMG_WRITE_STREAM=$(FW_DMG_WRITE_STREAM) \
           -DFW_DMG_A15_PAD=$(FW_DMG_A15_PAD) \
+          -DFW_DMG_A15_NOTOGGLE=$(FW_DMG_A15_NOTOGGLE) \
           -DFW_DMG_WRITE_RAW_PAD=$(FW_DMG_WRITE_RAW_PAD) \
           -DFW_DMG_CS_READ_PAD=$(FW_DMG_CS_READ_PAD) \
           -DFW_LK_ROUTE_DMG_READ=$(FW_LK_ROUTE_DMG_READ) \

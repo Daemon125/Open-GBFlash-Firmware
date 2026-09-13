@@ -936,6 +936,11 @@ void fw_cart_dmg_setup(void)
 #ifndef FW_DMG_A15_PAD
 #define FW_DMG_A15_PAD 0
 #endif
+#ifndef FW_DMG_A15_FLAT_NOPS
+/* 0 is the measured floor: the method dispatch already sits between the address
+ * write and the sample and carries about six cycles of settle. */
+#define FW_DMG_A15_FLAT_NOPS 0
+#endif
 #ifndef FW_DMG_A15_HI_NOPS
 #define FW_DMG_A15_HI_NOPS 2   /* -> 12, stock 0x8020..0x7FFA */
 #endif
@@ -984,12 +989,22 @@ uint32_t fw_cart_dmg_read(uint32_t addr, uint8_t *out, uint32_t count,
                 BUS_NOPS(27);               /* stock 0x803E, and it runs... */
                 BUS_NOPS(27);               /* ...twice: the loop at 0x8074  */
             } else {
+#if FW_DMG_A15_NOTOGGLE
+                /* /RD is /OE and the prologue holds it low, so a changed address
+                 * presents new data after the part's access time. Whether the
+                 * A15-high edge is a strobe the cartridge needs, or only what
+                 * stock happens to emit, is what this measures. */
+                BUS_NOPS(FW_DMG_A15_FLAT_NOPS);
+#else
                 BUS_NOPS(FW_DMG_A15_SETTLE_NOPS);  /* stock 0x7FFC           */
+#endif
             }
             out[i] = (uint8_t)(REG32(R32_PB_PIN) & PB_ADDR_HI);
+#if !FW_DMG_A15_NOTOGGLE
             REG32(R32_PA_OUT) = a | PA_A15;
 #if FW_DMG_A15_PAD
             BUS_NOPS(FW_DMG_A15_HI_NOPS);
+#endif
 #endif
         } else {
             /* RD, stock 0x7F16: the ordinary cycle. */
