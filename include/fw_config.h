@@ -40,10 +40,15 @@ firmware and offer to overwrite it on every connect"
 #define FW_BL_MAGIC_ADDR    0x20000090u   /* write VALUE here, then SYSRESETREQ */
 #define FW_BL_MAGIC_VALUE   0xAA55BB01u
 
-/* Sizes g_reply[]; 0x8000 does not fit in SRAM. A host that hard-codes a larger
- * value instead of reading it back gets half a block and desynchronises. */
+/* Sizes g_reply[], the largest object in SRAM. A host that hard-codes a larger
+ * value instead of reading it back gets half a block and desynchronises.
+ *
+ * 0x5000 bought nothing over 0x2000 and cost 12288 bytes of the 32 KiB:
+ * AGB 16 MiB read 18.72 s against 18.71, AGB 4 MiB write 38.90 against 39.08
+ * interleaved, DMG 2 MiB read 3.19 against 3.12. Every dump md5-identical.
+ * 0x1000 starts to cost reads. */
 #ifndef FW_MAX_TRANSFER
-#define FW_MAX_TRANSFER     0x5000u
+#define FW_MAX_TRANSFER     0x2000u
 #endif
 
 
