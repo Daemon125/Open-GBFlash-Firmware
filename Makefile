@@ -330,6 +330,14 @@ FW_DMG_DIR_HOIST ?= 0
 # GATED ON HARDWARE: two 2 MiB writes verified byte-exact.
 FW_DMG_WSF_LEAN ?= 0
 
+# The data loop masked the address and rebuilt the data mask on every byte, both
+# invariant across a buffer. Walk a pointer and a pre-masked address instead.
+# Needs FW_DMG_WSF_LEAN.
+# GATED ON HARDWARE: 3024 -> 2953 cycles per load, 2.3%, two 2 MiB writes
+# verified byte-exact. Worth one instruction of the loop; the rest of what the
+# loop spends on register shuffling needs hand allocation, not C.
+FW_DMG_WSF_WALK ?= 0
+
 FW_DMG_PROFILE ?= 0
 
 # Restore the live write-enable selector from the var-state blob. It must be
@@ -626,6 +634,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_DMG_SHADOW_PB=$(FW_DMG_SHADOW_PB) \
           -DFW_DMG_DIR_HOIST=$(FW_DMG_DIR_HOIST) \
           -DFW_DMG_WSF_LEAN=$(FW_DMG_WSF_LEAN) \
+          -DFW_DMG_WSF_WALK=$(FW_DMG_WSF_WALK) \
           -DFW_DMG_WRITE_STREAM=$(FW_DMG_WRITE_STREAM) \
           -DFW_DMG_A15_PAD=$(FW_DMG_A15_PAD) \
           -DFW_DMG_A15_NOTOGGLE=$(FW_DMG_A15_NOTOGGLE) \

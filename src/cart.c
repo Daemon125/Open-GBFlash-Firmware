@@ -1231,6 +1231,10 @@ void fw_cart_dmg_status_poll_close(void)
 #error "FW_DMG_WSF_LEAN needs FW_DMG_SHADOW_PB=1; it only edits the shadow path"
 #endif
 
+#if FW_DMG_WSF_WALK && !FW_DMG_WSF_LEAN
+#error "FW_DMG_WSF_WALK needs FW_DMG_WSF_LEAN=1; it rewrites that loop"
+#endif
+
 #if FW_DMG_SHADOW_PB
 /* PB_OUT is read-modify-written three times per bus write. Nothing outside this
  * file drives port B, and neither bl_usb_poll() nor the USB handler touches
@@ -1292,6 +1296,25 @@ void fw_cart_dmg_status_poll_close(void)
                    FW_DMG_SHADOW_PULSE_F);                               \
     pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
 } while (0)
+/* DMG_WSF_SH with the address already masked and the data mask held in a
+ * register, so neither is rebuilt per byte. */
+#define DMG_WSF_WALK_SH(a, v, dclr) do {                                 \
+    BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
+    BUS_NOPS(FW_DMG_WR_CLK_NOPS);                                        \
+    DMG_WSF_PADIR();                                                     \
+    REG32(R32_PA_OUT)  = (a);                                            \
+    BUS_NOPS(FW_DMG_WR_AD_NOPS);                                         \
+    DMG_WSF_PBDIR();                                                     \
+    BUS_NOPS(FW_DMG_WR_DIR_NOPS);                                        \
+    pb = (pb & (dclr)) | (uint32_t)(v);                                  \
+    REG32(R32_PB_OUT) = pb;                                              \
+    BUS_NOPS(FW_DMG_WR_DS_NOPS + FW_DMG_SHADOW_DS_PAD);                  \
+    REG32(R32_PB_CLR) = PB_WR;          pb &= ~(uint32_t)PB_WR;          \
+    BUS_NOPS_FIXED(FW_DMG_WR_PULSE_NOPS + (5 - FW_DMG_SHADOW_PULSE_F),   \
+                   FW_DMG_SHADOW_PULSE_F);                               \
+    pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
+} while (0)
+
 #else
 #define DMG_WSF_SH(a, v) do {                                            \
     pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
@@ -1340,9 +1363,26 @@ void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
     DMG_WSF_SH(sa,          cmd_val[2]);                /* SA=25  */
     DMG_WSF_SH(sa,          count - 1u);                /* SA=BS  */
 
+#if FW_DMG_WSF_WALK
+    /* The loop masked the address and rematerialised the data mask on every
+     * byte. A DMG write lands below 0x8000 and a buffer is at most 32 bytes, so
+     * the masked address cannot carry: mask once and count up. */
+    {
+        const uint8_t *p = data;
+        const uint8_t *pe = data + count;
+        uint32_t a = sa & PA_AD_MASK;
+        const uint32_t dclr = ~(uint32_t)PB_ADDR_HI;
+
+        for (; p != pe; p++, a++) {
+            DMG_WSF_WALK_SH(a, *p, dclr);               /* PA=PD  */
+        }
+    }
+    (void)x;
+#else
     for (x = 0; x < count; x++) {
         DMG_WSF_SH(sa + x, data[x]);                    /* PA=PD  */
     }
+#endif
 
     DMG_WSF_SH(sa, cmd_val[5]);                         /* SA=29  */
 }
