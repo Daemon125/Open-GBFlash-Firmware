@@ -610,6 +610,10 @@ static void do_eeprom_read(fw_state_t *st)
 #error "FW_SAVE_TX_DIRECT needs FW_TX_DIRECT: it nominates a direct region."
 #endif
 
+#ifndef FW_SAVE_TX_OVERLAP
+#define FW_SAVE_TX_OVERLAP 0
+#endif
+
 static void do_save_read(fw_state_t *st)
 {
     cart_wait_ready();
@@ -632,6 +636,12 @@ static void do_save_read(fw_state_t *st)
 #if FW_SAVE_TX_DIRECT
         off += want;
         bl_usb_tx_direct_publish((uint16_t)off);
+#if FW_SAVE_TX_OVERLAP
+        /* Priming poll only. Draining the chunk here costs the whole USB
+         * transfer on top of the whole save read; the epilogue below is what
+         * guarantees every byte leaves. */
+        bl_usb_poll();
+#else
         /* One poll per packet: bl_usb_poll() services at most one IN. */
         {
             uint32_t k = want;
@@ -640,6 +650,7 @@ static void do_save_read(fw_state_t *st)
                 k = (k > 64u) ? (k - 64u) : 0u;
             }
         }
+#endif
 #else
         if (!pump(p, want)) {
             fw_cart_agb_sram_close();

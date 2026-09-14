@@ -244,6 +244,14 @@ FW_AGB_WRITE_BURST ?= 1
 # GATED ON HARDWARE: four 128 KiB save backups byte-identical to the =0 build.
 FW_SAVE_TX_DIRECT ?= 1
 
+# Let the AGB save read fill the next chunk while the endpoint drains the last,
+# as FW_DMG_TX_OVERLAP does for DMG ROM. 500.8 -> 505.4 KiB/s; the command is
+# cartridge bound at 598, so the drain was never most of the cost.
+# NEEDS A HARDWARE GATE: a byte-exact save round trip on a cartridge that has a
+# save chip. The bench rig had a DMG cartridge in the slot, where AGB save reads
+# are a floating bus and no two passes agree.
+FW_SAVE_TX_OVERLAP ?= 0
+
 # Overlap the 3D Memory bus with its wire. It is the last read path that strobes
 # a whole 4096-byte page off the cartridge before the endpoint sees a byte; the
 # other four nominate g_reply and publish as they fill. Bus is 0.500 us/byte
@@ -680,6 +688,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_AGB_SKIP_FF=$(FW_AGB_SKIP_FF) \
           -DFW_AGB_WRITE_BURST=$(FW_AGB_WRITE_BURST) \
           -DFW_SAVE_TX_DIRECT=$(FW_SAVE_TX_DIRECT) \
+          -DFW_SAVE_TX_OVERLAP=$(FW_SAVE_TX_OVERLAP) \
           -DFW_M3D_TX_DIRECT=$(FW_M3D_TX_DIRECT) \
           -DFW_STREAM_MIDGROUP_POLL=$(FW_STREAM_MIDGROUP_POLL) \
           -DFW_AGB_LEAF=$(FW_AGB_LEAF) \

@@ -29,6 +29,11 @@ if [ "${1:-}" = "--stock" ]; then
 elif [ "${1:-}" = "--image" ]; then
     IMAGE="${2:?usage: flash.sh --image <fw.bin>}"
     echo "  flashing image: $IMAGE"
+elif [ -n "${1:-}" ]; then
+    echo "  unrecognised argument: $1" >&2
+    echo "  usage: flash.sh [--image <fw.bin> | --stock]" >&2
+    echo "  No argument rebuilds at the defaults and flashes that." >&2
+    exit 1
 else
     # Plain `make', so a knob build made just before this is REBUILT AT THE
     # DEFAULTS and the knob image is discarded. Use --image to flash what you
