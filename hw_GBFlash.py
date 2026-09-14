@@ -498,7 +498,11 @@ class GbxDevice(LK_Device):
 		return LK_Device.SetAGBReadMethod(self, method)
 
 	def _set_fw_variable(self, key, value):
-		"""Forget what ReadROM remembers whenever anyone else sets these."""
+		"""Forget what ReadROM remembers whenever anyone else sets these.
+
+		Unguarded by OPEN_FW on purpose: it only clears a memo that the guarded
+		ReadROM reads, and always delegates, so stock firmware sees upstream.
+		"""
 		if key in ("TRANSFER_SIZE", "DMG_ACCESS_MODE"):
 			self._rom_var_memo = None
 		return LK_Device._set_fw_variable(self, key, value)

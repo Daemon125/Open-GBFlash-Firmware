@@ -50,11 +50,11 @@ class CountingPort:
     def in_waiting(self): return len(self.pending)
 
 
-def make(cls, mode, reply_len):
+def make(cls, mode, reply_len, open_fw=True):
     dev = cls.__new__(cls)
     dev.DEVICE = CountingPort(reply_len)
     dev.CANCEL_ARGS = {}; dev.ERROR = False; dev.CANCEL = False
-    dev.OPEN_FW = True; dev.MODE = mode
+    dev.OPEN_FW = open_fw; dev.MODE = mode
     dev.FW = {"fw_ver": 15, "pcb_name": "Open-GBFlash"}
     dev.FW_VAR = {}
     dev.WRITE_DELAY = False; dev.READ_ERRORS = 0
@@ -112,6 +112,28 @@ def main():
     print("  after a size change: %d SET_VARIABLE" % (setvars(dev) - before))
     if (setvars(dev) - before) != 2:                # TRANSFER_SIZE + ADDRESS
         print("  [FAIL] expected 2"); fails += 1
+
+    # Stock firmware must see upstream's behaviour: OPEN_FW is decided from the
+    # reported pcb_name, and a GBFlash board on stock has the same VID/PID.
+    dev = make(G, "DMG", 0x2000, open_fw=False)
+    for bank in range(4):
+        dev.ReadROM(0x4000, 0x4000, max_length=0x2000)
+    n = setvars(dev)
+    print("  stock firmware, 4 bank reads: %d SET_VARIABLE (upstream sends 12)" % n)
+    if n != 12:
+        print("  [FAIL] the skip must not apply when OPEN_FW is False"); fails += 1
+
+    # SetAGBReadMethod must call through on stock.
+    seen = []
+    dev = make(G, "AGB", 0x2000, open_fw=False)
+    dev.AGB_READ_METHOD = 2
+    dev.ACTIONS = {"ROM_READ": 1}
+    dev.INFO = {"action": 1}
+    dev._set_fw_variable = lambda k, v: seen.append((k, v))
+    dev.SetAGBReadMethod(0)
+    print("  stock firmware, SetAGBReadMethod(0): %s" % ("applied" if seen else "SUPPRESSED"))
+    if not seen:
+        print("  [FAIL] the downgrade must still apply when OPEN_FW is False"); fails += 1
 
     print("test_rom_var_resend: %s" % ("FAILED" if fails else "passed"))
     return 1 if fails else 0

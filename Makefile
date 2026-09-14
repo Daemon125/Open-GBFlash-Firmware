@@ -191,10 +191,19 @@ FW_TX_PIPELINE ?= 1
 # whole 16 MiB dump, 260096 windows, no disagreement. Then two further 16 MiB
 # dumps byte-exact against a checksum-verified reference. Critical path 4.47 ->
 # 3.69 us, packet period 63.24 -> 62.7 us.
-# Both ship 0 because the interrupt runs inside slack: shortening it moves no
-# bytes. Re-measured after the host got 9% faster on DMG, in case the slack had
-# closed. 2 MiB dumps, 20 per arm, interleaved: 900.9 against 903.5 KiB/s, one
-# arm ahead in 56% of pairwise comparisons. Still nothing.
+# The interrupt runs inside slack on every wire-bound path, so shortening it
+# moves no bytes there. Four rounds per arm, both knobs against neither:
+#   pure transport  996.2 -> 997.9   +0.2%
+#   AGB Stream      992.3 -> 993.5   +0.1%
+#   AGB MemCpy      961.0 -> 960.8   -0.0%
+#   DMG read        964.7 -> 969.4   +0.5%
+#   AGB Single      795.2 -> 820.5   +3.2%, ahead in 100% of pairs
+# Single is the one path where the cartridge leaf, not the wire, is the limit,
+# so cycles the interrupt takes come straight off it. Both still ship 0: the
+# gain reaches only Single, and enabling them needs a byte-exact gate that the
+# cartridge in the rig could not give (it stopped driving the bus mid-session).
+# FW_USB_ISR_LEAN has no hardware gate of its own recorded; TX_TOG_SHADOW's is
+# above.
 FW_USB_TX_TOG_SHADOW ?= 0
 
 FW_USB_ISR_LEAN ?= 0
