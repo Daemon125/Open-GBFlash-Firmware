@@ -596,6 +596,11 @@ static USB_SHARED uint16_t tx_dir_total;  /* region size, set by begin()       *
 
 
 #if FW_TX_PIPELINE
+#if FW_USB_TX_TOG_SHADOW
+static USB_SHARED uint8_t tx_tog_pred;
+static USB_SHARED uint8_t tx_tog_valid;
+#endif
+
 static USB_SHARED uint8_t tx_pipe_armed;  /* both windows hold valid bytes */
 
 /* Which staged packets belonged to the region: a CDC terminator, a reply header
@@ -636,6 +641,9 @@ static void tx_direct_reset(void)
 #if FW_TX_PIPELINE
     tx_pipe_armed = 0u;
     tx_pipe_engaged = 0u;
+#if FW_USB_TX_TOG_SHADOW
+    tx_tog_valid = 0u;
+#endif
 #if FW_USB_ISR_LEAN
     tx_pipe_outstanding = 0u;
 #endif
@@ -709,6 +717,9 @@ static void tx_pump(void)
                 (m == (uint16_t)bl_usb_ep2_pkt_in) &&
                 (tx_direct_ready() >= (uint16_t)(2u * (uint32_t)bl_usb_ep2_pkt_in))) {
                 uint8_t first = ep2_tx_off();
+#if FW_USB_TX_TOG_SHADOW
+                tx_tog_pred = first; tx_tog_valid = 1u;
+#endif
                 uint8_t second = (first == EP2_DBUF_TX1_OFF) ? EP2_DBUF_TX0_OFF
                                                              : EP2_DBUF_TX1_OFF;
                 usb_copy(&ep2_buf[first], &tx_dir_base[tx_dir_pos], m);
@@ -802,6 +813,9 @@ void bl_usb_tx_direct_begin(const uint8_t *base, uint16_t total)
     /* Symmetric with tx_direct_reset(); do not rely on end() always preceding. */
     tx_pipe_armed = 0u;
     tx_pipe_engaged = 0u;
+#if FW_USB_TX_TOG_SHADOW
+    tx_tog_valid = 0u;
+#endif
 #if FW_USB_ISR_LEAN
     tx_pipe_outstanding = 0u;
 #endif
@@ -1444,8 +1458,28 @@ void bl_usb_poll(void)
 #if FW_TX_PIPELINE
             /* The window the SIE sends next was staged last round: release first. */
             if (tx_pipe_armed != 0u) {
+#if FW_USB_TX_TOG_SHADOW
+                /* The window alternates, so track it rather than reading the
+                 * toggle out of R8_UEP2_CTRL. Verified against the register
+                 * over a 16 MiB dump: 260096 predictions, no disagreement.
+                 * Knowing it without the read is what lets the release move
+                 * above the refill: the SIE cannot start the next transaction
+                 * until this flag is cleared, and the refill then has a 50 us
+                 * transaction to finish inside. */
+                uint8_t freed;
+                uint16_t left;
+
+                if (tx_tog_valid != 0u) {
+                    freed = tx_tog_pred;
+                    tx_tog_pred = (tx_tog_pred == EP2_DBUF_TX1_OFF)
+                                  ? EP2_DBUF_TX0_OFF : EP2_DBUF_TX1_OFF;
+                } else {
+                    freed = ep2_tx_other();
+                }
+#else
                 uint8_t freed = ep2_tx_other();
                 uint16_t left;
+#endif
                 R8_USB_INT_FG = RB_UIF_TRANSFER;   /* release the bus */
                 pipe_cleared = 1u;
 

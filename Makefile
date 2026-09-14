@@ -164,6 +164,17 @@ FW_TX_PIPELINE ?= 1
 # outstanding full packets says what the ring said.
 # GATED ON HARDWARE: 420.4 -> 336.7 cycles per interrupt measured with SysTick,
 # -20%, over 3252 interrupts. Read throughput 995.6 -> 999.6 KiB/s.
+# Track EP2's transmit window instead of reading its toggle out of
+# R8_UEP2_CTRL, and clear the transfer flag above the refill rather than below
+# it. The SIE cannot start the next transaction until that flag is cleared, so
+# the read was on the critical path; the refill that follows has a 50 us
+# transaction to finish inside. Needs FW_USB_ISR_LEAN's staging count.
+# GATED ON HARDWARE: the prediction was first run alongside the register for a
+# whole 16 MiB dump, 260096 windows, no disagreement. Then two further 16 MiB
+# dumps byte-exact against a checksum-verified reference. Critical path 4.47 ->
+# 3.69 us, packet period 63.24 -> 62.7 us.
+FW_USB_TX_TOG_SHADOW ?= 0
+
 FW_USB_ISR_LEAN ?= 0
 
 FW_RX_DBUF ?= 0
@@ -615,6 +626,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_TX_PIPELINE=$(FW_TX_PIPELINE) \
           -DFW_RX_DBUF=$(FW_RX_DBUF) \
           -DFW_USB_ISR_LEAN=$(FW_USB_ISR_LEAN) \
+          -DFW_USB_TX_TOG_SHADOW=$(FW_USB_TX_TOG_SHADOW) \
           -DFW_M3D_SETTLE_ITERS=$(FW_M3D_SETTLE_ITERS) \
           -DFW_CRC32_SLICE4=$(FW_CRC32_SLICE4) \
           -DFW_PROTO_FAST_COPY=$(FW_PROTO_FAST_COPY) \

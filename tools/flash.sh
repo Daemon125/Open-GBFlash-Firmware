@@ -37,6 +37,14 @@ else
     make --no-print-directory
 fi
 
+# Also before the handover: a missing or empty image strands the board in
+# update mode exactly as a missing updater does.
+if [ ! -s "$IMAGE" ]; then
+    echo "  missing or empty image: $IMAGE" >&2
+    echo "  Not touching the device." >&2
+    exit 1
+fi
+
 if command -v md5 >/dev/null 2>&1; then
     echo "  image md5: $(md5 -q "$IMAGE")"
 elif command -v md5sum >/dev/null 2>&1; then
