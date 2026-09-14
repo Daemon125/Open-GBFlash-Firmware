@@ -937,8 +937,8 @@ void fw_cart_dmg_setup(void)
 #define FW_DMG_A15_PAD 0
 #endif
 #ifndef FW_DMG_A15_FLAT_NOPS
-/* 0 is the measured floor: the method dispatch already sits between the address
- * write and the sample and carries about six cycles of settle. */
+/* The method dispatch already carries about six cycles between the address
+ * write and the sample, so 0 here is not a zero settle. */
 #define FW_DMG_A15_FLAT_NOPS 0
 #endif
 #ifndef FW_DMG_A15_HI_NOPS
@@ -1236,12 +1236,9 @@ void fw_cart_dmg_status_poll_close(void)
  * releases them. [GATED] */
 
 #if FW_DMG_SHADOW_PB
-/* PB_OUT held in a register across one load instead of read-modify-written
- * three times per bus write. Safe only because nothing on the poll or interrupt
- * path touches GPIO: a port B write from outside a load (fw_lk_led_idle,
- * src/lk_glue.c:154) must not land inside one. Re-read per load, so staleness
- * is bounded to one. FW_DMG_SHADOW_WRHI_PAD, _DS_PAD and _PULSE_F put back the
- * cycles the dropped reads held. */
+/* PB_OUT lives in a register for the length of one load. A port B write from
+ * anywhere else (fw_lk_led_idle, src/lk_glue.c:154) landing inside one is
+ * lost. */
 #ifndef FW_DMG_SHADOW_WRHI_PAD
 #define FW_DMG_SHADOW_WRHI_PAD  0u
 #endif
@@ -1255,10 +1252,9 @@ void fw_cart_dmg_status_poll_close(void)
 #define FW_DMG_SHADOW_PULSE_F   2
 #endif
 
-/* PA_DIR and PB_DIR do not change across a load, but sit inside the per-write
- * sequence as read-modify-writes. Hoisting both to the top of the load removes
- * two of those from each of 37 writes. They sit in intervals the cartridge acts
- * on, CLK-low to address and address to data, so this spends waveform margin. */
+/* PA_DIR and PB_DIR are set once per load and the per-write macros skip them.
+ * That shortens CLK-low to address and address to data, both of which the
+ * cartridge acts on. */
 #if FW_DMG_DIR_HOIST
 #define DMG_WSF_PADIR()  ((void)0)
 #define DMG_WSF_PBDIR()  ((void)0)
@@ -1267,11 +1263,9 @@ void fw_cart_dmg_status_poll_close(void)
 #define DMG_WSF_PBDIR()  REG32(R32_PB_DIR) |= PB_ADDR_HI
 #endif
 
-/* Drops the three stores per write that change no pin: the /WR-high the
- * previous write left high, the CLK-low nothing raises inside a burst, and the
- * PB_CLR half of the data store. Every nop interval is kept, so no window the
- * cartridge measures changes width. The load prologue must issue the real
- * CLK-low and /WR-high once, so this cannot be used outside one. */
+/* Omits the /WR-high, CLK-low and PB_CLR stores; none changes a pin inside a
+ * burst. Unusable outside a load: the prologue owns the real CLK-low and
+ * /WR-high. */
 #if FW_DMG_WSF_LEAN
 #define DMG_WSF_SH(a, v) do {                                            \
     BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
@@ -1289,8 +1283,7 @@ void fw_cart_dmg_status_poll_close(void)
                    FW_DMG_SHADOW_PULSE_F);                               \
     pb |= PB_WR;                        REG32(R32_PB_OUT) = pb;          \
 } while (0)
-/* DMG_WSF_SH with the address already masked and the data mask held in a
- * register, so neither is rebuilt per byte. */
+/* Takes a pre-masked address and the data mask in a register. */
 #define DMG_WSF_WALK_SH(a, v, dclr) do {                                 \
     BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
     BUS_NOPS(FW_DMG_WR_CLK_NOPS);                                        \
@@ -1335,7 +1328,7 @@ void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
                                     const uint8_t *data)
 {
 #if FW_DMG_WSF_LEAN
-    /* /WR high and CLK low once for the load, where each write repeated them. */
+    /* /WR high and CLK low for the whole burst. */
     uint32_t pb = REG32(R32_PB_OUT) | PB_RD | PB_WR;
 #else
     uint32_t pb = REG32(R32_PB_OUT) | PB_RD;
@@ -1357,9 +1350,8 @@ void fw_cart_dmg_amd_program_buffer(const uint32_t *cmd_addr,
     DMG_WSF_SH(sa,          count - 1u);                /* SA=BS  */
 
 #if FW_DMG_WSF_WALK
-    /* The loop masked the address and rematerialised the data mask on every
-     * byte. A DMG write lands below 0x8000 and a buffer is at most 32 bytes, so
-     * the masked address cannot carry: mask once and count up. */
+    /* A DMG write lands below 0x8000 and a buffer is at most 32 bytes, so the
+     * masked address cannot carry. */
     {
         const uint8_t *p = data;
         const uint8_t *pe = data + count;

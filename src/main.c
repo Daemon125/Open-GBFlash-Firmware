@@ -1115,9 +1115,8 @@ static uint32_t dmg_status_wait(fw_state_t *st, uint32_t addr, uint8_t want)
                 fw_cart_dmg_status_poll_close();
                 return 1u;
             }
-            /* bl_time_ms() converts SysTick cycles to milliseconds and is the
-             * bulk of an iteration. The deadline is 500 ms; reading it once per
-             * FW_DMG_POLL_STRIDE samples cannot overrun it meaningfully. */
+            /* bl_time_ms() is most of an iteration. Striding it cannot
+             * overrun a 500 ms deadline meaningfully. */
             tick++;
             if (tick >= (uint32_t)FW_DMG_POLL_STRIDE) {
                 tick = 0u;

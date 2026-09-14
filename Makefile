@@ -251,9 +251,8 @@ FW_DMG_WRITE_BURST ?= 1
 # stock's 14.22, and 79.48 s at 2 MiB against stock's 80.90.
 FW_DMG_POLL_TIGHT ?= 1
 
-# Settable because the comments above claim they are. Defaults match the
-# #ifndef fallbacks in src/cart.c and src/main.c; changing one here is what
-# "putting the cycles back" means.
+# Pads and strides the shadow and A15 knobs above trade against. Defaults match
+# the #ifndef fallbacks in the sources.
 FW_DMG_POLL_STRIDE ?= 1
 FW_DMG_SHADOW_WRHI_PAD ?= 0
 FW_DMG_SHADOW_DS_PAD ?= 0
@@ -297,37 +296,29 @@ FW_DMG_UNLOCK_BYPASS ?= 1
 # byte-exact, then four save round trips alternating two images, 4/4 matching.
 FW_DMG_WRITE_STREAM ?= 1
 
-# FW_DMG_SHADOW_PB, FW_DMG_DIR_HOIST and FW_DMG_WSF_LEAN all cut core work out
-# of a buffered load's 37 bus writes, and they compose: 4294 -> 3029 cycles per
-# load together, 2.1 s of a 2 MiB write. Measuring one alone understates it,
-# because each frees registers the next would otherwise spill.
-#
-# All three ship 0. What they remove sits inside intervals the cartridge acts
-# on, so they spend waveform margin and the FW_DMG_SHADOW_*_PAD knobs put the
-# cycles back. An MBC5 and a ChisFlash MBC3 both write byte-exact with every nop
-# interval at zero, which is two dies, not every die.
+# The next three cut core work out of a buffered load's 37 bus writes. They
+# compose, 4294 -> 3029 cycles per load together, and measuring one alone
+# understates it. All three ship 0: what they remove sits inside intervals the
+# cartridge acts on, and the FW_DMG_SHADOW_* knobs below pad it back. Two dies
+# take every interval at zero byte-exact, which is two dies, not every die.
 
 # PB_OUT is read-modify-written three times per bus write; hold it in a register.
 FW_DMG_SHADOW_PB ?= 0
 
-# PA_DIR and PB_DIR are invariant across a buffered load but are read-modify-
-# written inside every one of its 37 bus writes. Needs FW_DMG_SHADOW_PB, which
-# owns the macro.
+# Set PA_DIR and PB_DIR once per load rather than inside each of its 37 bus
+# writes. Needs FW_DMG_SHADOW_PB, which owns the macro.
 # GATED ON HARDWARE: 2 MiB write byte-exact, interleaved two rounds against a
 # clean baseline, 31.35 -> 29.95 s mean, 4.5% alone.
 FW_DMG_DIR_HOIST ?= 0
 
-# Drop three stores per bus write that emit nothing: the /WR-high the previous
-# write already left high, the CLK-low that is "once and done" inside a burst,
-# and the PB_CLR half of setting the data byte. Every nop interval is kept, so
-# only the removed stores' own cycles leave the address-side windows. Needs
+# Omit the three stores per bus write that change no pin. Every nop interval is
+# kept, so only the stores' own cycles leave the address-side windows. Needs
 # FW_DMG_SHADOW_PB.
 # GATED ON HARDWARE: two 2 MiB writes verified byte-exact.
 FW_DMG_WSF_LEAN ?= 0
 
-# The data loop masked the address and rebuilt the data mask on every byte, both
-# invariant across a buffer. Walk a pointer and a pre-masked address instead.
-# Needs FW_DMG_WSF_LEAN.
+# Walk a pointer and a pre-masked address through the data loop instead of
+# rebuilding both per byte. Needs FW_DMG_WSF_LEAN.
 # GATED ON HARDWARE: 3024 -> 2953 cycles per load, two 2 MiB writes byte-exact.
 # Further loop gains need hand register allocation, not C.
 FW_DMG_WSF_WALK ?= 0

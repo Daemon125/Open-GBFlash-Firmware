@@ -48,8 +48,7 @@ firmware and offer to overwrite it on every connect"
 #define FW_MAX_TRANSFER     0x2000u
 #endif
 
-/* Bounds rx[] in fw_main(). Its own guard: nesting it inside FW_MAX_TRANSFER's
- * leaves rx[] undefined for any build that sets only FW_MAX_TRANSFER. */
+/* Bounds rx[] in fw_main(). */
 #ifndef FW_RX_BUF_BYTES
 #define FW_RX_BUF_BYTES 64u
 #endif
