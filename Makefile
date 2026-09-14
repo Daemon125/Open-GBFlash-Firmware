@@ -199,14 +199,15 @@ FW_TX_PIPELINE ?= 1
 #   DMG read        964.7 -> 969.4   +0.5%
 #   AGB Single      795.2 -> 820.5   +3.2%, ahead in 100% of pairs
 # Single is the one path where the cartridge leaf, not the wire, is the limit,
-# so cycles the interrupt takes come straight off it. Both still ship 0: the
-# gain reaches only Single, and enabling them needs a byte-exact gate that the
-# cartridge in the rig could not give (it stopped driving the bus mid-session).
-# FW_USB_ISR_LEAN has no hardware gate of its own recorded; TX_TOG_SHADOW's is
-# above.
-FW_USB_TX_TOG_SHADOW ?= 0
+# so cycles the interrupt takes come straight off it. Nothing regresses: MemCpy
+# and the transport sit inside their noise bands.
+# GATED ON HARDWARE: 32 interleaved 2 MiB DMG dumps, 16 with both knobs on, all
+# byte-exact against the reference tools/bench/read_soak.py uses. The AGB gate
+# covers FW_USB_TX_TOG_SHADOW only, above; FW_USB_ISR_LEAN still needs one AGB
+# byte-exact dump.
+FW_USB_TX_TOG_SHADOW ?= 1
 
-FW_USB_ISR_LEAN ?= 0
+FW_USB_ISR_LEAN ?= 1
 
 FW_RX_DBUF ?= 0
 
