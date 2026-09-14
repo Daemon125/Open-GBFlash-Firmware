@@ -451,21 +451,23 @@ static uint32_t execute(fw_state_t *st, uint8_t *out)
 
 #if FW_DMG_PROFILE
     case CMD_PROFILE_READ: {
+        extern uint32_t g_prof_pump_loads, g_prof_cyc_pump;
         extern uint32_t g_prof_loads, g_prof_cyc_load,
                         g_prof_cyc_poll, g_prof_poll_iters,
                         g_prof_cmds, g_prof_cyc_cmd,
                         g_prof_rd_bytes, g_prof_cyc_rd_bus,
                         g_prof_cyc_rd_pub;
         extern uint32_t fw_prof_stack_highwater(void);
-        const uint32_t v[10] = { g_prof_loads, g_prof_cyc_load,
+        const uint32_t v[12] = { g_prof_loads, g_prof_cyc_load,
                                  g_prof_cyc_poll, g_prof_poll_iters,
                                  g_prof_cmds, g_prof_cyc_cmd,
                                  fw_prof_stack_highwater(),
                                  g_prof_rd_bytes, g_prof_cyc_rd_bus,
-                                 g_prof_cyc_rd_pub };
+                                 g_prof_cyc_rd_pub,
+                                 g_prof_pump_loads, g_prof_cyc_pump };
         uint32_t k;
 
-        for (k = 0; k < 10u; k++) {
+        for (k = 0; k < 12u; k++) {
             out[k * 4u + 0u] = (uint8_t)(v[k] >> 24);
             out[k * 4u + 1u] = (uint8_t)(v[k] >> 16);
             out[k * 4u + 2u] = (uint8_t)(v[k] >> 8);
@@ -476,7 +478,8 @@ static uint32_t execute(fw_state_t *st, uint8_t *out)
         g_prof_cmds = 0u; g_prof_cyc_cmd = 0u;
         g_prof_rd_bytes = 0u; g_prof_cyc_rd_bus = 0u;
         g_prof_cyc_rd_pub = 0u;
-        return 40u;
+        g_prof_pump_loads = 0u; g_prof_cyc_pump = 0u;
+        return 48u;
     }
 #endif
 

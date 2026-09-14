@@ -22,6 +22,7 @@ static uint8_t g_reply[FW_MAX_TRANSFER] __attribute__((aligned(4)));
 /* SysTick is free running, 24 bit, counting down at Fsys. One lap is 419 ms at
  * 40 MHz, so a buffer load never wraps it. */
 uint32_t g_prof_loads, g_prof_cyc_load, g_prof_cyc_poll, g_prof_poll_iters;
+uint32_t g_prof_pump_loads, g_prof_cyc_pump;
 uint32_t g_prof_cmds, g_prof_cyc_cmd;
 uint32_t g_prof_rd_bytes, g_prof_cyc_rd_bus, g_prof_cyc_rd_pub;
 
@@ -55,6 +56,8 @@ uint32_t fw_prof_stack_highwater(void)
     }
     return (uint32_t)((uintptr_t)top - (uintptr_t)p);
 }
+
+static uint32_t g_prof_in_pump;
 
 static inline uint32_t prof_now(void)
 {
@@ -1352,8 +1355,11 @@ static uint32_t dmg_program_chunk(fw_state_t *st, const uint8_t *data,
                                     st->dmg_write_cs_pulse);  /* SA=29  */
         }
 #if FW_DMG_PROFILE
-        g_prof_cyc_load += prof_delta(prof_t0);
-        g_prof_loads++;
+        {
+            uint32_t d = prof_delta(prof_t0);
+            if (g_prof_in_pump) { g_prof_cyc_pump += d; g_prof_pump_loads++; }
+            else                { g_prof_cyc_load += d; g_prof_loads++; }
+        }
         prof_t0 = prof_now();
 #endif
         /* The last byte: an AMD buffer retires as a unit. LK.c:1957. */
@@ -1396,6 +1402,9 @@ static void dmg_stream_pump(fw_state_t *st)
 
     chunk = st->buffer_size;
 
+#if FW_DMG_PROFILE
+    g_prof_in_pump = 1u;
+#endif
     while (filled >= (uint32_t)st->program_done + chunk) {
         if (st->program_done == 0u) {
             st->program_streamed = 0u;
@@ -1409,6 +1418,9 @@ static void dmg_stream_pump(fw_state_t *st)
         st->program_done = (uint16_t)(st->program_done + chunk);
         st->program_streamed++;
     }
+#if FW_DMG_PROFILE
+    g_prof_in_pump = 0u;
+#endif
 #else
     (void)st;
 #endif
