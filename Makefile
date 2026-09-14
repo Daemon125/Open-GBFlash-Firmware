@@ -245,11 +245,13 @@ FW_AGB_WRITE_BURST ?= 1
 FW_SAVE_TX_DIRECT ?= 1
 
 # Let the AGB save read fill the next chunk while the endpoint drains the last,
-# as FW_DMG_TX_OVERLAP does for DMG ROM. 500.8 -> 505.4 KiB/s; the command is
-# cartridge bound at 598, so the drain was never most of the cost.
-# NEEDS A HARDWARE GATE: a byte-exact save round trip on a cartridge that has a
-# save chip. The bench rig had a DMG cartridge in the slot, where AGB save reads
-# are a floating bus and no two passes agree.
+# as FW_DMG_TX_OVERLAP does for DMG ROM. Worth 500.8 -> 505.4 KiB/s and it
+# CORRUPTS THE READ: 1 is wrong and non-repeatable at every transfer size above
+# one step, correct only at 0x40 where the loop body runs once and the overlap
+# never engages. Draining is what keeps the USB interrupt out of
+# fw_cart_agb_sram_read; let bytes queue and it fires inside the leaf instead.
+# The command is cartridge bound at 598 KiB/s anyway, so the drain was never
+# most of its cost. Do not ship 1 without fixing the leaf.
 FW_SAVE_TX_OVERLAP ?= 0
 
 # Overlap the 3D Memory bus with its wire. It is the last read path that strobes
