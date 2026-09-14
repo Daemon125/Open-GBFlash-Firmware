@@ -398,6 +398,88 @@ class GbxDevice(LK_Device):
 			s += " (" + __("unregistered") + ")"
 		return s
 
+	def ReadROM(self, address, length, skip_init=False, max_length=64):
+		"""Upstream's ReadROM with one read opcode kept outstanding.
+
+		The read opcodes carry no argument bytes and the device services its RX
+		ring while a reply is still streaming, so the opcode for the next region
+		is already in hand when the current one ends. Depth 2 is the whole gain;
+		deeper queues measure the same and only widen the recovery window.
+		"""
+		max_length = min(max_length, self.MAX_BUFFER_READ)
+		# Detection, CFI and header reads leave max_length at 64, so they cross
+		# num >= 2 on a few hundred bytes: all of the exposure, none of the gain.
+		if not getattr(self, "OPEN_FW", False) or max_length < 0x1000:
+			return LK_Device.ReadROM(self, address, length, skip_init, max_length)
+		num = -(-length // max_length)
+		dprint("Reading 0x{:X} bytes from cartridge ROM at 0x{:X} in {:d} iteration(s)".format(length, address, num))
+		if length > max_length: length = max_length
+
+		buffer = bytearray()
+		if not skip_init:
+			self._set_fw_variable("TRANSFER_SIZE", length)
+			if self.MODE == "DMG":
+				self._set_fw_variable("ADDRESS", address)
+				self._set_fw_variable("DMG_ACCESS_MODE", 1) # MODE_ROM_READ
+			elif self.MODE == "AGB":
+				self._set_fw_variable("ADDRESS", address >> 1)
+
+		if self.MODE == "DMG":
+			command = "DMG_CART_READ"
+		elif self.MODE == "AGB":
+			command = "AGB_CART_READ"
+		else:
+			raise NotImplementedError
+
+		cmd = self.DEVICE_CMD[command]
+		issued = 0
+		if num > 0:
+			self._write(cmd)
+			issued = 1
+
+		for n in range(0, num):
+			if issued < num:
+				self._write(cmd)
+				issued += 1
+			temp = self._read(length)
+			if temp is not False and isinstance(temp, int): temp = bytearray([temp])
+			if temp is False or len(temp) != length:
+				dprint("Error while trying to read 0x{:X} bytes from cartridge ROM at 0x{:X} in iteration {:d} of {:d} (response: {:s})".format(length, address, n, num, str(temp)))
+				# An opcode is still outstanding here, so a reply is still owed.
+				self.DEVICE.reset_output_buffer()
+				self._drain_outstanding()
+				return bytearray()
+			buffer += temp
+			if self.INFO["action"] in (self.ACTIONS["ROM_READ"], self.ACTIONS["SAVE_READ"], self.ACTIONS["ROM_WRITE_VERIFY"]) and not self.NO_PROG_UPDATE:
+				self.SetProgress({"action":"READ", "bytes_added":len(temp)})
+
+		# Every reply asked for has been read, so the port must be empty. A
+		# spare byte here is read as the caller's next ACK and shifts the rest
+		# of the dump by one, which only a ROM checksum would catch.
+		if self.DEVICE.in_waiting != 0:
+			dprint("ReadROM: {:d} unexpected byte(s) left after 0x{:X} at 0x{:X}".format(self.DEVICE.in_waiting, length * num, address))
+			self._drain_outstanding()
+			return bytearray()
+
+		return buffer
+
+	def _drain_outstanding(self):
+		"""Discard whatever the device is still sending.
+
+		A desynced parser streams without pause, so the quiet test alone never
+		exits; the deadline bounds it below the device's own 3 s stall exit.
+		"""
+		quiet = 0
+		deadline = time.time() + 2.0
+		while quiet < 20 and time.time() < deadline:
+			if self.DEVICE.in_waiting > 0:
+				self.DEVICE.read(self.DEVICE.in_waiting)
+				quiet = 0
+			else:
+				quiet += 1
+				time.sleep(0.01)
+		self.DEVICE.reset_input_buffer()
+
 	def GetRegisterInformation(self):
 		text = __("Your GBFlash device reported a registration error, which means it may be an illegitimate clone.") + "<br><br>" + __("The device’s integrated piracy detection may limit the device in performance and functionality until proper registration. The FlashGBX software has no control over this.")
 		return text
