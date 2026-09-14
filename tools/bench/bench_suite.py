@@ -708,7 +708,8 @@ def main():
         say()
         if args.yes:
             say("  --yes given, writes included")
-        elif ask("  Include write benchmarks? Type YES to include: ").strip() != "YES":
+        elif ask("  Include write benchmarks? Type yes to include: "
+                 ).strip().lower() not in ("y", "yes"):
             do_writes = False
             say("  skipping writes")
 
