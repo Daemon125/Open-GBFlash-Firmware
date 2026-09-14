@@ -416,12 +416,27 @@ class GbxDevice(LK_Device):
 
 		buffer = bytearray()
 		if not skip_init:
-			self._set_fw_variable("TRANSFER_SIZE", length)
+			# Only ADDRESS changes between calls. _BackupROM reads DMG one bank
+			# per call (LK_Device.py:3003), so the other two cost a blocking
+			# round trip every 16 KiB for a value the device already holds.
+			# _set_fw_variable below drops the memo, so anything else that
+			# writes these makes the next call send them again; a stale memo
+			# costs a short read, which _BackupROM already retries.
+			memo = getattr(self, "_rom_var_memo", None)
+			if memo is None or memo[0] is not self.DEVICE:
+				memo = [self.DEVICE, None, None]
+			send_xfer = (memo[1] != length)
+			send_mode = (memo[2] != 1)
+			if send_xfer:
+				self._set_fw_variable("TRANSFER_SIZE", length)
 			if self.MODE == "DMG":
 				self._set_fw_variable("ADDRESS", address)
-				self._set_fw_variable("DMG_ACCESS_MODE", 1) # MODE_ROM_READ
+				if send_mode:
+					self._set_fw_variable("DMG_ACCESS_MODE", 1) # MODE_ROM_READ
 			elif self.MODE == "AGB":
 				self._set_fw_variable("ADDRESS", address >> 1)
+			self._rom_var_memo = [self.DEVICE, length,
+								  1 if self.MODE == "DMG" else memo[2]]
 
 		if self.MODE == "DMG":
 			command = "DMG_CART_READ"
@@ -481,6 +496,12 @@ class GbxDevice(LK_Device):
 				and self.INFO.get("action") == self.ACTIONS["ROM_READ"]):
 			return
 		return LK_Device.SetAGBReadMethod(self, method)
+
+	def _set_fw_variable(self, key, value):
+		"""Forget what ReadROM remembers whenever anyone else sets these."""
+		if key in ("TRANSFER_SIZE", "DMG_ACCESS_MODE"):
+			self._rom_var_memo = None
+		return LK_Device._set_fw_variable(self, key, value)
 
 	def _try_write(self, data, retries=5):
 		"""Upstream's _try_write, with the port quieted after the resync.

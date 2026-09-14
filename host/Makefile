@@ -21,6 +21,10 @@
 # and checks hw_GBFlash.py's _try_write closes it. It drives a fake port, needs
 # no device, and skips without the FlashGBX package.
 #
+# test_rom_var_resend checks ReadROM sends TRANSFER_SIZE and DMG_ACCESS_MODE
+# once rather than per call, and sends them again after anything else writes
+# them. Drives a fake port, needs no device.
+#
 # test_host_attrs guards hw_GBFlash.py against a self.X() naming a method on
 # another class in the file. GbxDevice extends LK_Device from FlashGBX, which a
 # clone does not carry, so checks 3 and 4 only run where that tree is present.
@@ -45,6 +49,7 @@ test:
 	$(PYTHON) test_stale_claims.py
 	$(PYTHON) test_host_attrs.py
 	$(PYTHON) test_late_ack.py
+	$(PYTHON) test_rom_var_resend.py
 	$(PYTHON) test_host_update.py
 
 clean:
