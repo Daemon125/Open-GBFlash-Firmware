@@ -664,6 +664,8 @@ def main():
     ap.add_argument("--no-writes", action="store_true")
     ap.add_argument("--writes-only", action="store_true",
                     help="skip the reads; for retrying a failed write phase")
+    ap.add_argument("--yes", action="store_true",
+                    help="answer the write confirmation, which erases cartridges")
     ap.add_argument("--dmg-flashcart", help="--flashcart-type for DMG writes")
     ap.add_argument("--agb-flashcart", help="--flashcart-type for AGB writes")
     ap.add_argument("--skip", default="", help="comma separated: dmg,agb,m3d")
@@ -704,9 +706,17 @@ def main():
         say("  Whatever is on them now is gone, saves included. The 3D Memory")
         say("  cartridge is read only and is never written.")
         say()
-        if ask("  Include write benchmarks? Type YES to include: ").strip() != "YES":
+        if args.yes:
+            say("  --yes given, writes included")
+        elif ask("  Include write benchmarks? Type YES to include: ").strip() != "YES":
             do_writes = False
-            say("  skipping writes; reads only")
+            say("  skipping writes")
+
+    # --writes-only clears the read methods, so declining writes here leaves the
+    # run with nothing to do and a report with no rows, which reads as success.
+    if args.writes_only and not do_writes:
+        sys.exit("--writes-only needs the writes: rerun with --yes, or answer "
+                 "YES at the prompt.")
     if do_writes:
         say()
         say("  building the two test ROMs (this takes a moment) ...")
