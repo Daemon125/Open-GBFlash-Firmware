@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.1.0
+
+**Game Boy ROM writes are 20% faster.** Nothing else about how cartridges are
+read or written changes, and every dump this firmware produces is still byte for
+byte identical to one taken with the stock firmware.
+
+| 2 MiB Game Boy write | time | rate |
+|---|---|---|
+| Stock L15 | 33.90 s | 60 KiB/s |
+| Open-GBFlash 1.0.1 | 31.94 s | 64 KiB/s |
+| **Open-GBFlash 1.1.0** | **25.66 s** | **80 KiB/s** |
+
+One cartridge, one host, one FlashGBX, measured with `tools/bench/`. Both
+firmwares wrote the same file over the same starting contents and every write
+was verified byte-exact.
+
+### Faster
+
+- **Buffered writes take the lean bus primitive.** A 32-byte write-buffer load
+  is 37 bus writes, and every one of them went through the heavy routine that
+  re-arms the port direction and reloads the address. Worth 13.7% by itself.
+- **Unlock bypass on the single-write path.** Two of the four bus writes per
+  byte disappear. Worth 11.7% on a cartridge whose profile has no buffered
+  write.
+- **Programming starts before the block has finished arriving**, the Game Boy
+  counterpart of the GBA pump.
+
+### Changed
+
+- The transfer buffer is 0x2000 instead of 0x5000. The larger size measured no
+  faster and cost 12 KB of the 32 KB of SRAM; RAM use goes from 90% to 53%.
+
+### Upgrading from 1.0.1
+
+Nothing to do. Install it the way you installed 1.0.1.
+
 ## 1.0.1
 
 Host-side fixes and a real build stamp. The cartridge paths are unchanged, so the
