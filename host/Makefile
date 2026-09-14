@@ -17,6 +17,10 @@
 # compared against res/fw_Open-GBFlash.zip, a stock one still gets upstream's
 # answer. It needs the FlashGBX package and skips without it.
 #
+# test_late_ack reproduces the resync race that shifts a ROM dump by one byte
+# and checks hw_GBFlash.py's _try_write closes it. It drives a fake port, needs
+# no device, and skips without the FlashGBX package.
+#
 # test_host_attrs guards hw_GBFlash.py against a self.X() naming a method on
 # another class in the file. GbxDevice extends LK_Device from FlashGBX, which a
 # clone does not carry, so checks 3 and 4 only run where that tree is present.
@@ -40,6 +44,7 @@ test:
 	$(PYTHON) test_lk_glue.py
 	$(PYTHON) test_stale_claims.py
 	$(PYTHON) test_host_attrs.py
+	$(PYTHON) test_late_ack.py
 	$(PYTHON) test_host_update.py
 
 clean:

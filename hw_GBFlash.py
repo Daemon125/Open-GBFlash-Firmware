@@ -462,6 +462,45 @@ class GbxDevice(LK_Device):
 
 		return buffer
 
+	def _try_write(self, data, retries=5):
+		"""Upstream's _try_write, with the port quieted after the resync.
+
+		The resync writes 0x00 and takes the next byte as its answer. An ACK
+		that lands between the reset_input_buffer() above it and that read is
+		taken instead; the 0x00's own ACK is then read as the re-sent command's,
+		and the command's real ACK is left to be read as the first byte of the
+		next bulk transfer, which shifts the rest of a ROM dump by one. Measured
+		once in 15 sixteen-megabyte dumps, on the stock read path as well as the
+		pipelined one. host/test_late_ack.py holds the case.
+		"""
+		if not getattr(self, "OPEN_FW", False):
+			return LK_Device._try_write(self, data, retries)
+
+		while retries > 0:
+			ack = self._write(data, wait=True)
+			if "from_user" in self.CANCEL_ARGS and self.CANCEL_ARGS["from_user"]:
+				return False
+			if ack is not False:
+				self.ERROR = False
+				self.CANCEL = False
+				self.CANCEL_ARGS = {}
+				return ack
+			retries -= 1
+			dprint("Retries left:", retries)
+
+			hp = 20
+			temp = 0
+			while temp not in (1, 2) and hp > 0:
+				self.DEVICE.reset_output_buffer()
+				self.DEVICE.reset_input_buffer()
+				self.DEVICE.write(b'\x00')
+				self.DEVICE.flush()
+				temp = self._read(1)
+				hp -= 1
+				dprint("Current response:", temp, ", HP:", hp)
+			self._drain_outstanding()
+		return False
+
 	def _drain_outstanding(self):
 		"""Discard whatever the device is still sending.
 
