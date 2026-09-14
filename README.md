@@ -20,8 +20,8 @@ macOS, GBFlash v1.3, measured through FlashGBX against the same cartridges.
 | GBA, read 32 MiB (Single) | 103.87 s (315 KiB/s) ‡ | **42.02 s (780 KiB/s)** | 2.5x |
 | GBA, write 16 MiB | 237.53 s (69 KiB/s) | **152.22 s (108 KiB/s)** | 1.6x |
 | GBA Video (3D Memory), read 64 MiB | 271.10 s (242 KiB/s) | **78.40 s (836 KiB/s)** | 3.5x |
-| Game Boy, read 2 MiB | 7.41 s (277 KiB/s) | **2.92 s (702 KiB/s)** | 2.5x |
-| Game Boy, write 2 MiB | 33.81 s (61 KiB/s) | 33.02 s (62 KiB/s) | 1.0x |
+| Game Boy, read 2 MiB | 7.54 s (272 KiB/s) | **3.06 s (669 KiB/s)** | 2.5x |
+| Game Boy, write 2 MiB | 34.11 s (60 KiB/s) | **25.66 s (80 KiB/s)** | 1.3x |
 
 Reads are the best of three per firmware, and every dump of a cartridge came
 back byte-identical whichever firmware produced it. Reads are the best of three.
@@ -73,16 +73,16 @@ users start from a higher baseline, so they have less to gain.
 On macOS this firmware is worth 2.5x to 3.5x on reads. On Windows, 1.3x to
 1.9x. Quote whichever matches the machine you use.
 
-**One row goes the other way.** Game Boy writes on Windows are 10% slower on
-this firmware than on stock. That path is bound by the cartridge's flash chip
-rather than by anything the firmware does, so there was no headroom to win, and
-on this host the small differences land against it. Measured over three runs,
-and not explained.
+**One row goes the other way.** Game Boy writes on Windows measured 10% slower
+on this firmware than on stock. That was taken against an older build, and the
+explanation given for it, that the path had no headroom to win, has since been
+disproved on macOS. Pending re-measurement.
 
-Reads gain the most. Writes gain less, and on Game Boy they do not gain at all:
-most of a write is the cartridge's own flash chip waiting to finish programming,
-and no firmware can hurry that. The GBA write path still had firmware overhead
-worth removing; the Game Boy one is already chip-bound at about 16 us a byte.
+Reads gain the most. Writes gain less, because most of a write belongs to the
+cartridge rather than to either firmware: erasing a 2 MiB Game Boy cartridge is
+over half the wall clock, and the status poll after each buffer load is the
+chip's own programming time. What is left is the firmware's share, and on Game
+Boy that is now worth 1.3x.
 
 Two things worth knowing about the table:
 
