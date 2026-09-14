@@ -100,6 +100,58 @@ jobs:
           echo "fw.bin (inside the zip)  $(sha256sum /tmp/fw.bin | cut -d' ' -f1)" >> SHA256SUMS
           cat SHA256SUMS
 
+      # The body is this tag's CHANGELOG section. GitHub renders a newline in a
+      # release body as a line break, so wrapped prose has to be joined first.
+      - name: Release notes
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          awk -v h="## $V" '$0==h{f=1;next} f&&/^## /{exit} f{print}' \
+              CHANGELOG.md > section.md
+          # CHANGELOG.md is hard wrapped, which reads correctly as a file but
+          # ragged in a release body, where GitHub turns every newline into a
+          # break. Join wrapped prose; leave tables, lists, headings, fences.
+          python3 - section.md > notes.md <<'PYEOF'
+          import re, sys
+          out, buf = [], []
+          def flush():
+              if buf:
+                  out.append(" ".join(x.strip() for x in buf))
+                  buf.clear()
+          fence = False
+          for raw in open(sys.argv[1]):
+              line, st = raw.rstrip("\n"), raw.strip()
+              if st.startswith("```"):
+                  flush(); fence = not fence; out.append(line); continue
+              if fence:
+                  out.append(line); continue
+              if not st:
+                  flush(); out.append(""); continue
+              if st[0] in "#|>":
+                  flush(); out.append(line); continue
+              if re.match(r"([-*+]|\d+\.)\s", st):
+                  flush(); buf.append(line); continue
+              buf.append(line)
+          flush()
+          print("\n".join(out).strip())
+          PYEOF
+          grep -q '[^[:space:]]' notes.md \
+            || { echo "::error::CHANGELOG.md has no section for $V"; exit 1; }
+          cat >> notes.md <<'EOF'
+
+          ---
+
+          **Installing**
+
+          1. Put `fw_Open-GBFlash.zip` in `FlashGBX/res/`, beside `fw_GBFlash.zip`.
+          2. Copy `hw_GBFlash.py` over `FlashGBX/hw_GBFlash.py`.
+          3. Tools > Firmware Updater, holding **U22** while plugging in.
+
+          `hw_GBFlash.py` is required: FlashGBX finds a GBFlash by USB id and will not see this firmware without it. Full instructions, benchmarks and the compatibility list are in the README.
+          EOF
+          printf '\nBuilt with Arm GNU Toolchain %s (gcc %s). Checksums in `SHA256SUMS`.\n' \
+            "$ARM_TOOLCHAIN" "$ARM_GCC_VERSION" >> notes.md
+          echo "--- release notes ---"; cat notes.md
+
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
@@ -107,19 +159,4 @@ jobs:
             dist/fw_Open-GBFlash.zip
             hw_GBFlash.py
             SHA256SUMS
-          body: |
-            Built by CI with Arm GNU Toolchain ${{ env.ARM_TOOLCHAIN }}
-            (gcc ${{ env.ARM_GCC_VERSION }}), the toolchain this firmware was
-            hardware-tested with. The build fails rather than publishing if that
-            ever differs. Checksums are in `SHA256SUMS`, so a local build with
-            the same toolchain can be compared against this one.
-
-            **Installing**
-
-            1. Put `fw_Open-GBFlash.zip` in `FlashGBX/res/`, beside `fw_GBFlash.zip`.
-            2. Copy `hw_GBFlash.py` over `FlashGBX/hw_GBFlash.py`.
-            3. Tools > Firmware Updater, holding **U22** while plugging in.
-
-            `hw_GBFlash.py` is required: FlashGBX finds a GBFlash by USB id and
-            will not see this firmware without it. Full instructions, benchmarks
-            and the compatibility list are in the README.
+          body_path: notes.md
