@@ -6,10 +6,10 @@ read here is preceded by a health check, and a wedge is resynchronised and
 counted separately, because the two have completely different meanings for a
 release: one is data corruption, the other is a recoverable protocol stall.
 """
-import subprocess, sys, os, time, hashlib
+import os, subprocess, sys, time, hashlib
 import serial, serial.tools.list_ports
 
-SP = "/private/tmp/claude-501/-Users-damon-Documents-Claude-Code-Projects-GBFlash/a3a03a68-ed94-490a-a270-0bc0d1b64f6d/scratchpad"
+SP = os.environ.get("GBFLASH_SOAK_DIR", os.path.dirname(os.path.abspath(__file__)))
 PKG = SP + "/gbflash-bench"; FG = PKG + "/flashgbx"; out = PKG + "/results/_s4.bin"
 GOOD = "e56abb530f3fe57e21666eae51ed2cea"
 

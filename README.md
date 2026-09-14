@@ -21,10 +21,10 @@ macOS, GBFlash v1.3, measured through FlashGBX against the same cartridges.
 | GBA, write 16 MiB | 237.53 s (69 KiB/s) | **152.22 s (108 KiB/s)** | 1.6x |
 | GBA Video (3D Memory), read 64 MiB | 271.10 s (242 KiB/s) | **78.40 s (836 KiB/s)** | 3.5x |
 | Game Boy, read 2 MiB | 7.54 s (272 KiB/s) | **3.06 s (669 KiB/s)** | 2.5x |
-| Game Boy, write 2 MiB | 34.11 s (60 KiB/s) | **25.66 s (80 KiB/s)** | 1.3x |
+| Game Boy, write 2 MiB | 33.90 s (60 KiB/s) | **25.66 s (80 KiB/s)** | 1.3x |
 
 Reads are the best of three per firmware, and every dump of a cartridge came
-back byte-identical whichever firmware produced it. Reads are the best of three.
+back byte-identical whichever firmware produced it.
 Writes were verified and wrote the same file over the same starting contents,
 timed once after an untimed priming write.
 
@@ -137,7 +137,7 @@ underneath.
   staging buffer on the way. Dropping that trip also freed the memory that made
   larger transfers possible.
 - **The host asks how much the device can send.** FlashGBX assumed 4 KiB. It
-  asks this firmware and gets 20 KiB, so the same dump costs far fewer round
+  asks this firmware and gets 8 KiB, so the same dump costs far fewer round
   trips. A stock device is left on the 4 KiB it always used.
 - **An endpoint nobody answers is polled far less.** Stock declares an interrupt
   endpoint that the host asks a thousand times a second and that never replies.

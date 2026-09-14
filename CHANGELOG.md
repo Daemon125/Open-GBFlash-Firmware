@@ -2,9 +2,8 @@
 
 ## 1.1.0
 
-**Game Boy ROM writes are 20% faster.** Nothing else about how cartridges are
-read or written changes, and every dump this firmware produces is still byte for
-byte identical to one taken with the stock firmware.
+**Game Boy ROM writes are 20% faster.** Every dump this firmware produces is
+still byte for byte identical to one taken with the stock firmware.
 
 | 2 MiB Game Boy write | time | rate |
 |---|---|---|
