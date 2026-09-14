@@ -29,15 +29,11 @@ Writes were verified and wrote the same file over the same starting contents,
 timed once after an untimed priming write.
 
 Stock is measured through unmodified FlashGBX, which is what a stock user
-actually has. That matters: this project's FlashGBX patch negotiates a larger
-read buffer, which is worth nothing on GBA and, on macOS, costs stock 22% on
-Game Boy, so measuring stock through it would have flattered these numbers. On
-Windows that penalty does not appear.
+actually has. The patched host pins a stock device to the same read buffer, so
+the two agree: 7.54 s against 7.53 s on the Game Boy read above.
 
-‡ Except this one. Only the Stream method was timed on unmodified FlashGBX, so
-the Single row's stock figure comes from the patched host. Stock reads about 3%
-slower through the patched host, so that row flatters this firmware slightly:
-2.5x where the unmodified host would put it nearer 2.4x.
+‡ The Single row's stock figure was taken on the patched host rather than the
+unmodified one.
 
 ### The same cartridges on Windows
 
@@ -344,8 +340,12 @@ with; another version will compile but may not produce the same image:
 ```
 make            # build/fw.bin, the installable image
 make dist       # dist/fw_Open-GBFlash.zip, what FlashGBX installs
-./tools/flash.sh
 ```
+
+Install `dist/fw_Open-GBFlash.zip` through the FlashGBX firmware updater.
+`tools/flash.sh` does the same over USB without the GUI, but it drives the
+bootloader through `gbflash_serial_update.py` from the GBFlash Unlocker
+project, which this repository does not carry; point `GBFLASH_UPDATER` at it.
 
 ## Going back to the official firmware
 

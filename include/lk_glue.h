@@ -8,7 +8,7 @@
 #include "proto.h"
 
 #ifndef FW_LK_ROUTE_DMG_READ
-#define FW_LK_ROUTE_DMG_READ 1  /* Makefile:317 ships 0 */
+#define FW_LK_ROUTE_DMG_READ 1  /* Makefile:468 ships 0 */
 #endif
 
 #ifndef FW_LK_ROUTE

@@ -118,8 +118,8 @@ this firmware by about 3%. Windows figures are in the README.
 | Game Boy, read 2 MiB | 7.41 s | 2.92 s | 2.5x |
 | Game Boy, write 2 MiB | 33.16 s | 32.43 s | 1.0x |
 
-Game Boy writes are unchanged: that path is bound by the cartridge's flash chip,
-not by the firmware.
+Game Boy writes are unchanged (superseded in 1.1.0): that path is bound by the
+cartridge's flash chip, not by the firmware.
 
 Every dump is byte-for-byte identical to one taken with the stock firmware.
 

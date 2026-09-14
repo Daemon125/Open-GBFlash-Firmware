@@ -9,8 +9,8 @@
 #include "timebase.h"
 #include "lk_glue.h"
 
-/* g_reply is 16 KB at FW_MAX_TRANSFER against 1 KB of stack headroom; as an
- * automatic it runs the stack into .bss. */
+/* g_reply is FW_MAX_TRANSFER bytes; as an automatic it runs the stack into
+ * .bss. */
 /* BL_USB_ECHO=1 loops the receive path back and swallows BOOTLOADER_RESET. */
 #if !defined(BL_USB_ECHO) || BL_USB_ECHO != 0
 #error "BL_USB_ECHO must be defined as 0 for the firmware build. See the Makefile."

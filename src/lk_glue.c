@@ -129,7 +129,7 @@ void fw_lk_delay_ms(uint32_t ms)
 
 /* 5 V at a 3.3 V AGB cartridge is irreversible. LK.c:190-194 force-sets
  * LK_VAR8_CART_MODE to DMG one line before SET_VOLTAGE_5V(), so the guard has to
- * read st->mode, set by the parser on 0xA3 (proto.c:556-557) and never by LK. */
+ * read st->mode, set by the parser on 0xA3 (proto.c:589-590) and never by LK. */
 void fw_lk_voltage_5v(void)
 {
     int dmg = (g_st != 0) && (g_st->mode == FW_MODE_DMG);
@@ -219,7 +219,7 @@ static void mirror_to_lk(const fw_state_t *st)
     _lk_var8[LK_VAR8_DMG_ACCESS_MODE]       = st->dmg_access_mode;
     _lk_var8[LK_VAR8_FLASH_COMMAND_SET]     = st->flash_command_set;
     _lk_var8[LK_VAR8_FLASH_METHOD]          = st->flash_method;
-    /* flash_we_pin_var, not flash_we_pin (proto.c:452-453): the other one puts
+    /* flash_we_pin_var, not flash_we_pin (proto.c:486): the other one puts
      * LK's DMG flash writes on whatever strobe the last SET_FLASH_CMD chose. */
     _lk_var8[LK_VAR8_FLASH_WE_PIN]          = st->flash_we_pin_var;
     _lk_var8[LK_VAR8_FLASH_PULSE_RESET]     = st->flash_pulse_reset;

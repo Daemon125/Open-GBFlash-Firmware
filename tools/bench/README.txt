@@ -29,7 +29,8 @@ Writes erase the cartridge
 
 Write benchmarks overwrite the DMG and AGB cartridges completely, saves
 included. Back up anything on them first. The suite asks before doing any of
-this and you have to type YES; anything else runs reads only.
+this. RUN-DMG-WRITE.bat answers for you, since a write run has nothing left to
+do without it.
 
 The 3D Memory cartridge is retail and read only. It is never written.
 

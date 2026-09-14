@@ -53,7 +53,7 @@ LK_BUILD := $(BUILD)/lk
 ARCHFLAGS := -mcpu=cortex-m0 -mthumb
 
 # Below 1730592000 FlashGBX flags the firmware as unofficial and offers to
-# overwrite it on every connect. include/fw_config.h:14 #errors on it.
+# overwrite it on every connect. include/fw_config.h:28 #errors on it.
 FW_TIMESTAMP ?= 1789358934
 
 # Must be 0. With echo on, the loopback pump drains the receive staging before
@@ -212,7 +212,7 @@ FW_SAVE_TX_DIRECT ?= 1
 # against 1.083 on the wire, so the margin is 2.2x, unlike the DMG grain sweep
 # that FW_DMG_READ_PUB banked as negative at 1.08x.
 # 0 stages a 4096-byte page through tx_buf and needs BL_USB_TX_BUF_SIZE >=
-# 4096; src/main.c:691 #errors on it.
+# 4096; src/main.c:747 #errors on it.
 FW_M3D_TX_DIRECT ?= 1
 
 # Word-wise payload copy in fw_proto_feed_bulk(). The FLASH_PROGRAM block is

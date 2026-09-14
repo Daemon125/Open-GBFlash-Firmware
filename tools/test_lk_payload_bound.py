@@ -3,7 +3,7 @@
 
 0xB3, 0xB6, 0xB7 and 0xB9 each do an unchunked lk_conn_recv(data_buffer,
 TRANSFER_SIZE). data_buffer is 0x1000; TRANSFER_SIZE is clamped only to
-FW_MAX_TRANSFER (0x5000) because that cell is also the ROM read block size. In
+FW_MAX_TRANSFER because that cell is also the ROM read block size. In
 the built image data_buffer + 4308 is the cartridge bus-mode byte and
 data_buffer + 8604 is the end of SRAM, so an oversized payload overwrites
 firmware state and then runs off the end of RAM. Stock FlashGBX sets

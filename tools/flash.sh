@@ -11,6 +11,17 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
+# Checked before the handover below, not after: that sends BOOTLOADER_RESET,
+# and failing once the board is in update mode leaves nothing able to finish.
+UPDATER="${GBFLASH_UPDATER:-../ref/gbflash_unlocker/gbflash_serial_update.py}"
+if [ ! -f "$UPDATER" ]; then
+    echo "  missing: $UPDATER" >&2
+    echo "  It belongs to the GBFlash Unlocker project, which this repository" >&2
+    echo "  does not carry. Point GBFLASH_UPDATER at it, or install the image" >&2
+    echo "  through the FlashGBX firmware updater instead." >&2
+    exit 1
+fi
+
 IMAGE="build/fw.bin"
 if [ "${1:-}" = "--stock" ]; then
     IMAGE="../fw/fw.bin"
@@ -77,7 +88,7 @@ print("  handed over to the bootloader")
 time.sleep(3.0)
 PY
 
-python3 ../ref/gbflash_unlocker/gbflash_serial_update.py "$IMAGE" --skip-trigger
+python3 "$UPDATER" "$IMAGE" --skip-trigger
 sleep 3
 
 python3 - <<'PY'
