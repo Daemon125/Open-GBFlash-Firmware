@@ -163,7 +163,14 @@ FW_TX_PIPELINE ?= 1
 # read of R8_UEP2_CTRL. And pipelined staging is uniform, so a count of
 # outstanding full packets says what the ring said.
 # GATED ON HARDWARE: 420.4 -> 336.7 cycles per interrupt measured with SysTick,
-# -20%, over 3252 interrupts. Read throughput 995.6 -> 999.6 KiB/s.
+# -20%, over 3252 interrupts. Packet period 63.24 -> 62.91 us.
+#
+# Worth about 1%, and no more is available here. Padding the handler past its
+# release shows where the limit is: up to 7 us of added nops changes the period
+# by nothing measurable, 10 us costs 17%, 20 us costs 53%. The handler runs
+# inside slack, so shortening it buys back only what the period already shows.
+# The period is set by the wire transaction, bit stuffing and the host's token
+# cadence, none of which are the firmware's.
 # Track EP2's transmit window instead of reading its toggle out of
 # R8_UEP2_CTRL, and clear the transfer flag above the refill rather than below
 # it. The SIE cannot start the next transaction until that flag is cleared, so
