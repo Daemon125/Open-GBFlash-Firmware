@@ -25,6 +25,10 @@
 # once rather than per call, and sends them again after anything else writes
 # them. Drives a fake port, needs no device.
 #
+# test_upstream_drift hashes the two LK_Device methods hw_GBFlash.py overrides
+# by reimplementation rather than delegation, so a FlashGBX bump that changes
+# either one fails here instead of in a dump. Skips without the package.
+#
 # test_host_attrs guards hw_GBFlash.py against a self.X() naming a method on
 # another class in the file. GbxDevice extends LK_Device from FlashGBX, which a
 # clone does not carry, so checks 3 and 4 only run where that tree is present.
@@ -50,6 +54,7 @@ test:
 	$(PYTHON) test_host_attrs.py
 	$(PYTHON) test_late_ack.py
 	$(PYTHON) test_rom_var_resend.py
+	$(PYTHON) test_upstream_drift.py
 	$(PYTHON) test_host_update.py
 
 clean:

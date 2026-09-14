@@ -401,6 +401,9 @@ class GbxDevice(LK_Device):
 	def ReadROM(self, address, length, skip_init=False, max_length=64):
 		"""Upstream's ReadROM with one read opcode kept outstanding.
 
+		Most of this body is LK_Device.ReadROM's; the loop had to be owned to
+		pipeline it. host/test_upstream_drift.py fails if upstream's changes.
+
 		The read opcodes carry no argument bytes and the device services its RX
 		ring while a reply is still streaming, so the opcode for the next region
 		is already in hand when the current one ends. Depth 2 is the whole gain;
@@ -509,6 +512,9 @@ class GbxDevice(LK_Device):
 
 	def _try_write(self, data, retries=5):
 		"""Upstream's _try_write, with the port quieted after the resync.
+
+		Most of this body is LK_Device._try_write's; the fix sits inside its
+		loop. host/test_upstream_drift.py fails if upstream's changes.
 
 		The resync writes 0x00 and takes the next byte as its answer. An ACK
 		that lands between the reset_input_buffer() above it and that read is
