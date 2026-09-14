@@ -462,6 +462,26 @@ class GbxDevice(LK_Device):
 
 		return buffer
 
+	def SetAGBReadMethod(self, method):
+		"""Keep Stream through a ROM dump of an enable_pullups profile.
+
+		LK_Device.py:2925-2927 enables the pullups and drops to Single for the
+		whole dump, restoring only at :3232, so three returns in between leak
+		Single into the rest of the session. Single re-latches /CS every two
+		bytes against Stream's cart_latch of 128.
+
+		Only the automatic downgrade: INFO["action"] is ROM_READ only inside
+		_BackupROM_Worker, so a method the user picks from the menu still
+		applies. GATED ON ONE CARTRIDGE, the AGB-E20-30 with S29GL256N10TFI01;
+		the other three names in fc_AGB_S29GL256.txt and all of fc_AGB_M29W640
+		are untested. See results/agb-read-method-downgrade.md.
+		"""
+		if (getattr(self, "OPEN_FW", False) and method == 0
+				and self.AGB_READ_METHOD == 2
+				and self.INFO.get("action") == self.ACTIONS["ROM_READ"]):
+			return
+		return LK_Device.SetAGBReadMethod(self, method)
+
 	def _try_write(self, data, retries=5):
 		"""Upstream's _try_write, with the port quieted after the resync.
 
