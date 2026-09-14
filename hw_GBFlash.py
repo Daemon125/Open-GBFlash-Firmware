@@ -406,11 +406,10 @@ class GbxDevice(LK_Device):
 		is already in hand when the current one ends. Depth 2 is the whole gain;
 		deeper queues measure the same and only widen the recovery window.
 		"""
-		max_length = min(max_length, self.MAX_BUFFER_READ)
-		# Detection, CFI and header reads leave max_length at 64, so they cross
-		# num >= 2 on a few hundred bytes: all of the exposure, none of the gain.
-		if not getattr(self, "OPEN_FW", False) or max_length < 0x1000:
+		if not getattr(self, "OPEN_FW", False):
 			return LK_Device.ReadROM(self, address, length, skip_init, max_length)
+
+		max_length = min(max_length, self.MAX_BUFFER_READ)
 		num = -(-length // max_length)
 		dprint("Reading 0x{:X} bytes from cartridge ROM at 0x{:X} in {:d} iteration(s)".format(length, address, num))
 		if length > max_length: length = max_length
@@ -466,8 +465,8 @@ class GbxDevice(LK_Device):
 	def _drain_outstanding(self):
 		"""Discard whatever the device is still sending.
 
-		A desynced parser streams without pause, so the quiet test alone never
-		exits; the deadline bounds it below the device's own 3 s stall exit.
+		The deadline caps the stall per failed chunk; _BackupROM retries 20
+		times before giving up.
 		"""
 		quiet = 0
 		deadline = time.time() + 2.0
