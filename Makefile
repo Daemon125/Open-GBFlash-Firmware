@@ -170,7 +170,18 @@ FW_TX_PIPELINE ?= 1
 # by nothing measurable, 10 us costs 17%, 20 us costs 53%. The handler runs
 # inside slack, so shortening it buys back only what the period already shows.
 # The period is set by the wire transaction, bit stuffing and the host's token
-# cadence, none of which are the firmware's.
+# cadence, none of which are the firmware's. Timed from the flag clear that
+# releases the SIE to the next completion: 63.48 us, against a whole period of
+# about 63. The firmware is not inside the loop that sets read throughput.
+#
+# Also measured and found not to matter, so that nobody spends another day on
+# them: reading R8_USB_INT_FG once instead of twice per interrupt (0 cycles, the
+# peripheral read is cheap); clearing RB_UC_INT_BUSY so the SIE stops answering
+# busy-NAK (no change, register verified 0x29 -> 0x21 at runtime); polled
+# instead of interrupt (worse, 965 against 983 KiB/s); and the host's read call
+# shape, from one 8 KiB read down to read(64) per packet (1% across all of it).
+# Bit stuffing is real and is not ours: 7.7 us a packet between all-zero and
+# all-one data, measured by making the device transmit chosen patterns.
 # Track EP2's transmit window instead of reading its toggle out of
 # R8_UEP2_CTRL, and clear the transfer flag above the refill rather than below
 # it. The SIE cannot start the next transaction until that flag is cleared, so
