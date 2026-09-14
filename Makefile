@@ -157,6 +157,15 @@ FW_TX_PIPELINE ?= 1
 # NOT GATED on Windows, where host-side bulk OUT pacing differs:
 # tools/test_short_packet.py and a byte-exact ROM write there before the
 # default moves off 0.
+# Two things the USB interrupt did on every packet that it did not need to.
+# Receive credit depends only on ring space, which moves when an OUT packet is
+# delivered or bl_usb_rx() drains; updating it per interrupt costs a peripheral
+# read of R8_UEP2_CTRL. And pipelined staging is uniform, so a count of
+# outstanding full packets says what the ring said.
+# GATED ON HARDWARE: 420.4 -> 336.7 cycles per interrupt measured with SysTick,
+# -20%, over 3252 interrupts. Read throughput 995.6 -> 999.6 KiB/s.
+FW_USB_ISR_LEAN ?= 0
+
 FW_RX_DBUF ?= 0
 
 # 3D Memory (GBA Video) mapper settle, in iterations of 27 nops. Stock spins
@@ -605,6 +614,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_AGB_FAST_BURST=$(FW_AGB_FAST_BURST) \
           -DFW_TX_PIPELINE=$(FW_TX_PIPELINE) \
           -DFW_RX_DBUF=$(FW_RX_DBUF) \
+          -DFW_USB_ISR_LEAN=$(FW_USB_ISR_LEAN) \
           -DFW_M3D_SETTLE_ITERS=$(FW_M3D_SETTLE_ITERS) \
           -DFW_CRC32_SLICE4=$(FW_CRC32_SLICE4) \
           -DFW_PROTO_FAST_COPY=$(FW_PROTO_FAST_COPY) \
