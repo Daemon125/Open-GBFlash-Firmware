@@ -336,6 +336,15 @@ FW_DMG_WSF_LEAN ?= 0
 # GATED ON HARDWARE: 3024 -> 2953 cycles per load, 2.3%, two 2 MiB writes
 # verified byte-exact. Worth one instruction of the loop; the rest of what the
 # loop spends on register shuffling needs hand allocation, not C.
+# How much one pass of the main loop may drain. The USB ring is 512 bytes
+# (include/usb.h:54), so at 64 a 2048-byte block pays the loop's fixed prologue
+# (link supervision, deferred-work scan, parser entry) 32 times instead of 4.
+# Above 512 there is nothing more to drain.
+# GATED ON HARDWARE: 2 MiB write byte-exact, 30.93 -> 30.41 s on the same ROM.
+# Stack high-water 500 -> 948 bytes of the 15360 between __bss_end and
+# __stack_top, so the cost is 6% of a region that was 3% used.
+FW_RX_BUF_BYTES ?= 64
+
 FW_DMG_WSF_WALK ?= 0
 
 FW_DMG_PROFILE ?= 0
@@ -635,6 +644,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_DMG_DIR_HOIST=$(FW_DMG_DIR_HOIST) \
           -DFW_DMG_WSF_LEAN=$(FW_DMG_WSF_LEAN) \
           -DFW_DMG_WSF_WALK=$(FW_DMG_WSF_WALK) \
+          -DFW_RX_BUF_BYTES=$(FW_RX_BUF_BYTES) \
           -DFW_DMG_WRITE_STREAM=$(FW_DMG_WRITE_STREAM) \
           -DFW_DMG_A15_PAD=$(FW_DMG_A15_PAD) \
           -DFW_DMG_A15_NOTOGGLE=$(FW_DMG_A15_NOTOGGLE) \

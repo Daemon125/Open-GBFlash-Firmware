@@ -1860,7 +1860,10 @@ void fw_main(void)
 #if FW_DMG_PROFILE
     fw_prof_stack_fill();
 #endif
-    uint8_t rx[64];
+    /* One pass of the loop drains at most this much, so it also sets how often
+     * the loop's fixed prologue (link supervision, deferred-work scan, parser
+     * entry) is paid: at 64 a 2048-byte block pays it 32 times. */
+    uint8_t rx[FW_RX_BUF_BYTES];
     int was_configured;
 
     bl_time_init();

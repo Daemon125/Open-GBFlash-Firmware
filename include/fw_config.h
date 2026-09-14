@@ -48,6 +48,10 @@ firmware and offer to overwrite it on every connect"
  * interleaved, DMG 2 MiB read 3.19 against 3.12. Every dump md5-identical.
  * 0x1000 starts to cost reads. */
 #ifndef FW_MAX_TRANSFER
+#ifndef FW_RX_BUF_BYTES
+#define FW_RX_BUF_BYTES 64u
+#endif
+
 #define FW_MAX_TRANSFER     0x2000u
 #endif
 
