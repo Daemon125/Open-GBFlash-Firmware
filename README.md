@@ -49,8 +49,8 @@ Windows 11, 32 cores, same device, same cartridges, same harness.
 | GBA, read 32 MiB (Single) | 78.30 s (418 KiB/s) ‡ | **42.15 s (777 KiB/s)** | 1.9x |
 | GBA, write 16 MiB | 197.55 s (83 KiB/s) | **153.72 s (107 KiB/s)** | 1.3x |
 | GBA Video (3D Memory), read 64 MiB | 137.75 s (476 KiB/s) | **80.60 s (813 KiB/s)** | 1.7x |
-| Game Boy, read 2 MiB | 4.73 s (433 KiB/s) | **3.48 s (588 KiB/s)** | 1.4x |
-| Game Boy, write 2 MiB | **30.09 s (68 KiB/s)** | 33.00 s (62 KiB/s) | 0.9x |
+| Game Boy, read 2 MiB | 4.74 s (432 KiB/s) | **3.49 s (586 KiB/s)** | 1.4x |
+| Game Boy, write 2 MiB | 28.87 s (71 KiB/s) | **25.17 s (81 KiB/s)** | 1.1x |
 
 Every row is the same work as its macOS counterpart: same cartridges, same
 files, same dumps byte for byte.
@@ -73,16 +73,11 @@ users start from a higher baseline, so they have less to gain.
 On macOS this firmware is worth 2.5x to 3.5x on reads. On Windows, 1.3x to
 1.9x. Quote whichever matches the machine you use.
 
-**One row goes the other way.** Game Boy writes on Windows measured 10% slower
-on this firmware than on stock. That was taken against an older build, and the
-explanation given for it, that the path had no headroom to win, has since been
-disproved on macOS. Pending re-measurement.
-
 Reads gain the most. Writes gain less, because most of a write belongs to the
 cartridge rather than to either firmware: erasing a 2 MiB Game Boy cartridge is
 over half the wall clock, and the status poll after each buffer load is the
 chip's own programming time. What is left is the firmware's share, and on Game
-Boy that is now worth 1.3x.
+Boy that is worth 1.3x on macOS and 1.1x on Windows.
 
 Two things worth knowing about the table:
 
@@ -151,7 +146,7 @@ underneath.
   cartridge data.
 - **Game Boy writing follows the right routine.** This firmware had been modelled
   on the wrong part of the stock write path, which left Game Boy ROM writes
-  slower than stock. They are level with it now, without shortening any pulse the
+  slower than stock. They are ahead of it now, without shortening any pulse the
   flash chip sees.
 - **GBA Video cartridges stop staging every page through memory.** That path kept
   the copy long after the ordinary read paths lost it, and it is most of why
