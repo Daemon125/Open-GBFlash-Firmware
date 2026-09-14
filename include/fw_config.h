@@ -21,7 +21,7 @@
  * The host file this project ships compares it against res/fw_Open-GBFlash.zip.
  * A stock FlashGBX compares it against its own table of stock build dates and
  * offers an update whenever it differs. */
-#define FW_TIMESTAMP        1788313704u
+#define FW_TIMESTAMP        1789358934u
 #endif
 
 #if FW_TIMESTAMP != 0u && FW_TIMESTAMP < 1730592000u
