@@ -309,8 +309,9 @@ FW_DMG_WRITE_STREAM ?= 1
 # across all four, so none of it is traded into the chip. All three ship 0: what
 # they remove is core work sitting inside intervals the cartridge acts on, so
 # they spend waveform margin, and putting the cycles back as nops returns the
-# whole gain. How much margin that cart has is measured in
-# docs/dmg-write-timing.md.
+# whole gain. Two cartridges, an MBC5 and a ChisFlash MBC3, both take a 2 MiB
+# write byte-exact with all six nop intervals set to zero, so the margin they
+# spend is wide. That is two dies, not every die.
 
 # PB_OUT is read-modify-written three times per bus write; hold it in a register.
 FW_DMG_SHADOW_PB ?= 0
