@@ -30,6 +30,7 @@ uint32_t g_prof_rd_bytes, g_prof_cyc_rd_bus, g_prof_cyc_rd_pub;
  * fill it once at startup, below this frame, and count back from the top to the
  * first word still holding the pattern. */
 extern uint32_t __heap_end;
+extern uint32_t __stack_top;
 
 #define PROF_STACK_PAT  0xC0DEC0DEu
 
@@ -40,6 +41,8 @@ void fw_prof_stack_fill(void)
     uint32_t *end;
 
     __asm__ volatile ("mov %0, sp" : "=r" (sp));
+    /* Stop well below this frame: filling into live stack writes the pattern
+     * over a return address and crashes somewhere unrelated. */
     end = (uint32_t *)(uintptr_t)((sp - 256u) & ~3u);
     while (p < end) {
         *p++ = PROF_STACK_PAT;
@@ -49,7 +52,7 @@ void fw_prof_stack_fill(void)
 uint32_t fw_prof_stack_highwater(void)
 {
     const uint32_t *p = &__heap_end;
-    const uint32_t *top = (const uint32_t *)(uintptr_t)0x20008000u;
+    const uint32_t *top = &__stack_top;
 
     while (p < top && *p == PROF_STACK_PAT) {
         p++;
@@ -61,7 +64,7 @@ static uint32_t g_prof_in_pump;
 
 static inline uint32_t prof_now(void)
 {
-    return (*(volatile uint32_t *)0xE000E018u) & 0x00FFFFFFu;
+    return (*(volatile uint32_t *)(uintptr_t)BL_TIME_SYST_CVR) & BL_TIME_SYST_MAX;
 }
 
 static inline uint32_t prof_delta(uint32_t start)
@@ -1860,9 +1863,7 @@ void fw_main(void)
 #if FW_DMG_PROFILE
     fw_prof_stack_fill();
 #endif
-    /* One pass of the loop drains at most this much, so it also sets how often
-     * the loop's fixed prologue (link supervision, deferred-work scan, parser
-     * entry) is paid: at 64 a 2048-byte block pays it 32 times. */
+    /* Also sets how often the loop's fixed prologue is paid; see the Makefile. */
     uint8_t rx[FW_RX_BUF_BYTES];
     int was_configured;
 

@@ -42,17 +42,16 @@ firmware and offer to overwrite it on every connect"
 
 /* Sizes g_reply[], the largest object in SRAM. A host that hard-codes a larger
  * value instead of reading it back gets half a block and desynchronises.
- *
- * 0x5000 bought nothing over 0x2000 and cost 12288 bytes of the 32 KiB:
- * AGB 16 MiB read 18.72 s against 18.71, AGB 4 MiB write 38.90 against 39.08
- * interleaved, DMG 2 MiB read 3.19 against 3.12. Every dump md5-identical.
- * 0x1000 starts to cost reads. */
+ * Do not raise to 0x5000: no faster, and 12288 bytes of the 32 KiB. Do not drop
+ * to 0x1000: reads slow down. */
 #ifndef FW_MAX_TRANSFER
-#ifndef FW_RX_BUF_BYTES
-#define FW_RX_BUF_BYTES 64u
+#define FW_MAX_TRANSFER     0x2000u
 #endif
 
-#define FW_MAX_TRANSFER     0x2000u
+/* Bounds rx[] in fw_main(). Its own guard: nesting it inside FW_MAX_TRANSFER's
+ * leaves rx[] undefined for any build that sets only FW_MAX_TRANSFER. */
+#ifndef FW_RX_BUF_BYTES
+#define FW_RX_BUF_BYTES 64u
 #endif
 
 

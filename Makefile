@@ -251,6 +251,15 @@ FW_DMG_WRITE_BURST ?= 1
 # stock's 14.22, and 79.48 s at 2 MiB against stock's 80.90.
 FW_DMG_POLL_TIGHT ?= 1
 
+# Settable because the comments above claim they are. Defaults match the
+# #ifndef fallbacks in src/cart.c and src/main.c; changing one here is what
+# "putting the cycles back" means.
+FW_DMG_POLL_STRIDE ?= 1
+FW_DMG_SHADOW_WRHI_PAD ?= 0
+FW_DMG_SHADOW_DS_PAD ?= 0
+FW_DMG_SHADOW_PULSE_F ?= 2
+FW_DMG_A15_FLAT_NOPS ?= 0
+
 # Do not issue a program cycle for a 0xFF data byte. NOR programming only
 # clears bits, so writing 0xFF leaves the byte as it was, whatever it holds and
 # whether or not the sector was erased first. FlashGBX already drops all-0xFF
@@ -277,41 +286,26 @@ FW_DMG_BUF_BURST ?= 1
 # GATED ON HARDWARE: 8 MiB MBC3+RTC cart, S29GL-class, single-write path forced
 # through a profile carrying no buffer_write. 2 MiB 76.63 -> 67.63 s, 11.7%, ROM
 # byte-exact every run, then four save round trips alternating two images after a
-# bypass write, 4/4 matching. That save test is what caught the AGB attempt.
+# bypass write, 4/4 matching.
 # A chip without bypass ignores the A0 and its bytes fail verification, so the
 # failure mode is a refused write rather than silent corruption.
 FW_DMG_UNLOCK_BYPASS ?= 1
 
-# Cycle counters around the buffered load and its status wait, read back through
-# opcode 0xDF. Measurement only; never ship it.
-# Hold PB_OUT in a register across one buffered load instead of read-modify-
-# writing it three times per bus write. Port B is driven only from cart.c and no
-# interrupt path touches GPIO. NOT GATED ON HARDWARE.
 # Program a DMG buffer load as it arrives instead of waiting for the whole
-# payload, the counterpart of the AGB pump. Receive and programming are
-# otherwise strictly serialised. The gain is small because the CPU cannot drain
-# USB and drive the cartridge at once, so the two add rather than overlap.
+# payload, the counterpart of the AGB pump.
 # GATED ON HARDWARE: 8 MiB MBC3+RTC cart, 2 MiB 30.92 -> 30.28 s mean of two,
 # byte-exact, then four save round trips alternating two images, 4/4 matching.
 FW_DMG_WRITE_STREAM ?= 1
 
-# Three knobs that share one target: the core work inside a buffered load's 37
-# bus writes. They compose, and the combination is worth far more than the parts
-# because each one frees registers the next would otherwise spill. Cycles per
-# load under FW_DMG_PROFILE, one DMG cart, 2 MiB writes verified byte-exact:
+# FW_DMG_SHADOW_PB, FW_DMG_DIR_HOIST and FW_DMG_WSF_LEAN all cut core work out
+# of a buffered load's 37 bus writes, and they compose: 4294 -> 3029 cycles per
+# load together, 2.1 s of a 2 MiB write. Measuring one alone understates it,
+# because each frees registers the next would otherwise spill.
 #
-#   shipped default                              4294.0
-#   SHADOW_PB                                    4075.3   -5.1%
-#   SHADOW_PB WSF_LEAN                           3724.3  -13.3%
-#   SHADOW_PB WSF_LEAN DIR_HOIST                 3028.5  -29.5%
-#
-# The last is 2.1 s of a 2 MiB write (33.09 -> 30.97 s wall). Poll time is flat
-# across all four, so none of it is traded into the chip. All three ship 0: what
-# they remove is core work sitting inside intervals the cartridge acts on, so
-# they spend waveform margin, and putting the cycles back as nops returns the
-# whole gain. Two cartridges, an MBC5 and a ChisFlash MBC3, both take a 2 MiB
-# write byte-exact with all six nop intervals set to zero, so the margin they
-# spend is wide. That is two dies, not every die.
+# All three ship 0. What they remove sits inside intervals the cartridge acts
+# on, so they spend waveform margin and the FW_DMG_SHADOW_*_PAD knobs put the
+# cycles back. An MBC5 and a ChisFlash MBC3 both write byte-exact with every nop
+# interval at zero, which is two dies, not every die.
 
 # PB_OUT is read-modify-written three times per bus write; hold it in a register.
 FW_DMG_SHADOW_PB ?= 0
@@ -334,20 +328,20 @@ FW_DMG_WSF_LEAN ?= 0
 # The data loop masked the address and rebuilt the data mask on every byte, both
 # invariant across a buffer. Walk a pointer and a pre-masked address instead.
 # Needs FW_DMG_WSF_LEAN.
-# GATED ON HARDWARE: 3024 -> 2953 cycles per load, 2.3%, two 2 MiB writes
-# verified byte-exact. Worth one instruction of the loop; the rest of what the
-# loop spends on register shuffling needs hand allocation, not C.
-# How much one pass of the main loop may drain. The USB ring is 512 bytes
-# (include/usb.h:54), so at 64 a 2048-byte block pays the loop's fixed prologue
-# (link supervision, deferred-work scan, parser entry) 32 times instead of 4.
-# Above 512 there is nothing more to drain.
-# GATED ON HARDWARE: 2 MiB write byte-exact, 30.93 -> 30.41 s on the same ROM.
-# Stack high-water 500 -> 948 bytes of the 15360 between __bss_end and
-# __stack_top, so the cost is 6% of a region that was 3% used.
-FW_RX_BUF_BYTES ?= 64
-
+# GATED ON HARDWARE: 3024 -> 2953 cycles per load, two 2 MiB writes byte-exact.
+# Further loop gains need hand register allocation, not C.
 FW_DMG_WSF_WALK ?= 0
 
+# How much one pass of the main loop may drain. The USB ring is 512 bytes
+# (include/usb.h:54), so at 64 a 2048-byte block pays the loop's fixed prologue
+# 32 times instead of 4; above 512 there is nothing more to drain. rx[] is on
+# the stack, bounded by the 15408 bytes between __bss_end and __stack_top.
+# Ships 64. GATED ON HARDWARE at 512: 2 MiB write byte-exact, 30.93 -> 30.41 s,
+# stack high-water 500 -> 948 bytes.
+FW_RX_BUF_BYTES ?= 64
+
+# Cycle counters around the buffered load and its status wait, read back through
+# opcode 0xDF. Measurement only; never ship it.
 FW_DMG_PROFILE ?= 0
 
 # Restore the live write-enable selector from the var-state blob. It must be
@@ -369,25 +363,16 @@ FW_VARSTATE_WE_PIN ?= 1
 # GATED ON HARDWARE: tools/verify_dmg_methods.py byte-exact over 2 MiB against
 # a vendor reference. A15 is the default DMG read method, so this is every GUI
 # DMG dump.
+FW_DMG_A15_PAD ?= 1
+
 # Drop the per-byte A15-high write from the A15 read. /RD is /OE and the
 # prologue holds it low, so a changed address presents new data after the access
-# time; the question is whether the A15 edge is a strobe the cartridge needs.
-# FW_DMG_A15_FLAT_NOPS is the settle that replaces it, measured floor 0 because
-# the method dispatch already carries about six cycles between the address write
-# and the sample.
-#
-# GATED ON ONE CARTRIDGE ONLY: 8 MiB MBC3+RTC, S29GL-class. Read leaf
-# 35.04 -> 26.47 cycles/byte, 24%. A 2 MiB dump does not move, it is wire-bound
-# at that point, but a 2 MiB WRITE goes 31.29 -> 30.76 s, 1.7%, because it reads
-# 4 MiB back through do_crc32 with no wire over it. tools/verify_dmg_methods.py
-# --compare: all three methods agree and match the reference over 256 KiB.
-#
-# Ships 0. Correctness risk, not a margin one: if any cartridge needs the A15
-# deselect its dumps are silently wrong. Needs other mappers and other boards
-# before the default moves.
+# time. FW_DMG_A15_FLAT_NOPS is the settle that replaces it.
+# GATED ON TWO CARTRIDGES: read leaf 35.04 -> 26.47 cycles/byte. A dump gains
+# 2.4%, being wire-bound; only the verification pass spends leaf cycles.
+# Ships 0. The risk is correctness, not margin: a cartridge that needs the A15
+# deselect dumps silently wrong data.
 FW_DMG_A15_NOTOGGLE ?= 0
-
-FW_DMG_A15_PAD ?= 1
 
 # Put dmg_write_raw()'s four sub-stock intervals back. It is no longer the hot
 # flash-write path (FW_DMG_WRITE_BURST is) but it is still every MBC bank
@@ -637,6 +622,11 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_CART_AUDIO_WE_SAFE=$(FW_CART_AUDIO_WE_SAFE) \
           -DFW_DMG_WRITE_BURST=$(FW_DMG_WRITE_BURST) \
           -DFW_DMG_POLL_TIGHT=$(FW_DMG_POLL_TIGHT) \
+          -DFW_DMG_POLL_STRIDE=$(FW_DMG_POLL_STRIDE) \
+          -DFW_DMG_SHADOW_WRHI_PAD=$(FW_DMG_SHADOW_WRHI_PAD) \
+          -DFW_DMG_SHADOW_DS_PAD=$(FW_DMG_SHADOW_DS_PAD) \
+          -DFW_DMG_SHADOW_PULSE_F=$(FW_DMG_SHADOW_PULSE_F) \
+          -DFW_DMG_A15_FLAT_NOPS=$(FW_DMG_A15_FLAT_NOPS) \
           -DFW_DMG_SKIP_FF=$(FW_DMG_SKIP_FF) \
           -DFW_DMG_BUF_BURST=$(FW_DMG_BUF_BURST) \
           -DFW_DMG_UNLOCK_BYPASS=$(FW_DMG_UNLOCK_BYPASS) \

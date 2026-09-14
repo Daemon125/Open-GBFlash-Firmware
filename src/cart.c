@@ -990,10 +990,9 @@ uint32_t fw_cart_dmg_read(uint32_t addr, uint8_t *out, uint32_t count,
                 BUS_NOPS(27);               /* ...twice: the loop at 0x8074  */
             } else {
 #if FW_DMG_A15_NOTOGGLE
-                /* /RD is /OE and the prologue holds it low, so a changed address
-                 * presents new data after the part's access time. Whether the
-                 * A15-high edge is a strobe the cartridge needs, or only what
-                 * stock happens to emit, is what this measures. */
+                /* /RD is /OE and the prologue holds it low, so a changed
+                 * address presents new data after the access time. A cartridge
+                 * that needs the A15 deselect dumps silently wrong data. */
                 BUS_NOPS(FW_DMG_A15_FLAT_NOPS);
 #else
                 BUS_NOPS(FW_DMG_A15_SETTLE_NOPS);  /* stock 0x7FFC           */
@@ -1223,10 +1222,6 @@ void fw_cart_dmg_status_poll_close(void)
     REG32(R32_PB_OUT) |= PB_RD;
 }
 
-/* One AMD write-buffer load: unlock pair, buffer-load at SA, count-1, the data
- * run, then the confirm. Same scope as fw_cart_dmg_amd_program_byte: plain /WR,
- * no /CS pulse, bank-1 commands clear. D0..D7 are left driven; the status poll
- * releases them. [GATED] */
 #if !FW_DMG_SHADOW_PB && FW_DMG_WSF_LEAN
 #error "FW_DMG_WSF_LEAN needs FW_DMG_SHADOW_PB=1; it only edits the shadow path"
 #endif
@@ -1235,14 +1230,18 @@ void fw_cart_dmg_status_poll_close(void)
 #error "FW_DMG_WSF_WALK needs FW_DMG_WSF_LEAN=1; it rewrites that loop"
 #endif
 
+/* One AMD write-buffer load: unlock pair, buffer-load at SA, count-1, the data
+ * run, then the confirm. Same scope as fw_cart_dmg_amd_program_byte: plain /WR,
+ * no /CS pulse, bank-1 commands clear. D0..D7 are left driven; the status poll
+ * releases them. [GATED] */
+
 #if FW_DMG_SHADOW_PB
-/* PB_OUT is read-modify-written three times per bus write. Nothing outside this
- * file drives port B, and neither bl_usb_poll() nor the USB handler touches
- * GPIO, so its state is held in a register across one load and stored directly.
- * The peripheral read is what costs; the stores keep the same edge order. The
- * shadow is re-read per load, which bounds staleness to one load.
- * FW_DMG_SHADOW_WRHI/DS/PULSE_PAD put back the cycles the dropped loads held in
- * the three intervals they sat in. */
+/* PB_OUT held in a register across one load instead of read-modify-written
+ * three times per bus write. Safe only because nothing on the poll or interrupt
+ * path touches GPIO: a port B write from outside a load (fw_lk_led_idle,
+ * src/lk_glue.c:154) must not land inside one. Re-read per load, so staleness
+ * is bounded to one. FW_DMG_SHADOW_WRHI_PAD, _DS_PAD and _PULSE_F put back the
+ * cycles the dropped reads held. */
 #ifndef FW_DMG_SHADOW_WRHI_PAD
 #define FW_DMG_SHADOW_WRHI_PAD  0u
 #endif
@@ -1250,14 +1249,16 @@ void fw_cart_dmg_status_poll_close(void)
 #define FW_DMG_SHADOW_DS_PAD    0u
 #endif
 #ifndef FW_DMG_SHADOW_PULSE_F
+/* Instruction cycles between the /WR-low and /WR-high stores in the macros
+ * below. Stock spends 5, so (5 - F) nops hold the pulse at stock's width; edit
+ * a macro body and this must change with it. */
 #define FW_DMG_SHADOW_PULSE_F   2
 #endif
 
 /* PA_DIR and PB_DIR do not change across a load, but sit inside the per-write
  * sequence as read-modify-writes. Hoisting both to the top of the load removes
  * two of those from each of 37 writes. They sit in intervals the cartridge acts
- * on, CLK-low to address and address to data, so this spends waveform margin:
- * putting the cycles back as nops returns the whole gain. */
+ * on, CLK-low to address and address to data, so this spends waveform margin. */
 #if FW_DMG_DIR_HOIST
 #define DMG_WSF_PADIR()  ((void)0)
 #define DMG_WSF_PBDIR()  ((void)0)
@@ -1266,19 +1267,11 @@ void fw_cart_dmg_status_poll_close(void)
 #define DMG_WSF_PBDIR()  REG32(R32_PB_DIR) |= PB_ADDR_HI
 #endif
 
-/* Three stores per write emit nothing the cartridge can see.
- *
- *   /WR high at the top is already high: the previous write ended by raising it,
- *   and the comment on dmg_write_stock_flash calls it a no-op in steady state.
- *   CLK low is "once and done": inside a burst nothing drives it high again, so
- *   36 of 37 clears change no pin.
- *   The data byte takes a PB_CLR of all eight bits and then an OR of the value.
- *   One store of the shadow does both; the intermediate zero is an artefact of
- *   using PB_CLR, not a level the part is waiting for.
- *
- * FW_DMG_WSF_LEAN drops those three and keeps every nop interval, so no window
- * the cartridge measures changes width. The first write of a load still needs
- * the real CLK-low and /WR-high, which the load prologue now does once. */
+/* Drops the three stores per write that change no pin: the /WR-high the
+ * previous write left high, the CLK-low nothing raises inside a burst, and the
+ * PB_CLR half of the data store. Every nop interval is kept, so no window the
+ * cartridge measures changes width. The load prologue must issue the real
+ * CLK-low and /WR-high once, so this cannot be used outside one. */
 #if FW_DMG_WSF_LEAN
 #define DMG_WSF_SH(a, v) do {                                            \
     BUS_NOPS(FW_DMG_WR_WRHI_NOPS + FW_DMG_SHADOW_WRHI_PAD);              \
