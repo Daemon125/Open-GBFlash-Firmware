@@ -191,6 +191,10 @@ FW_TX_PIPELINE ?= 1
 # whole 16 MiB dump, 260096 windows, no disagreement. Then two further 16 MiB
 # dumps byte-exact against a checksum-verified reference. Critical path 4.47 ->
 # 3.69 us, packet period 63.24 -> 62.7 us.
+# Both ship 0 because the interrupt runs inside slack: shortening it moves no
+# bytes. Re-measured after the host got 9% faster on DMG, in case the slack had
+# closed. 2 MiB dumps, 20 per arm, interleaved: 900.9 against 903.5 KiB/s, one
+# arm ahead in 56% of pairwise comparisons. Still nothing.
 FW_USB_TX_TOG_SHADOW ?= 0
 
 FW_USB_ISR_LEAN ?= 0
