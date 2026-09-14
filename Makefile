@@ -531,8 +531,10 @@ FW_DMG_TX_OVERLAP ?= 1
 
 # Publish into the transmit region every FW_DMG_PUB_GRAIN bytes during the
 # cartridge read rather than once per chunk at the end of it.
-# KiB/s at 40 MHz: off 945.5 / 946.5; on at grain 64 934.9, 128 952.7,
-# 256 955.1 / 952.0, 512 946.6, 1024 948.8. Ships grain 256.
+# 2 MiB dumps of a real cartridge, six per arm, interleaved by rounds:
+# off 887.4, grain 64 870.0, 128 902.1, 256 898.1. Do not drop to 64: the extra
+# leaf calls cost more than the shorter head of pipe saves. 128 and 256 are one
+# noise band apart. Ships grain 256.
 FW_DMG_READ_PUB ?= 1
 
 FW_DMG_PUB_GRAIN ?= 256
