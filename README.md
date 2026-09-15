@@ -6,8 +6,7 @@ It speaks the same cartridge protocol as the stock firmware and works with
 replaced so that it recognises the device. It is faster, in places by a lot.
 
 Every dump this firmware produces is byte for byte identical to one taken with
-the stock firmware. Nothing about how your cartridges are read or written
-changes.
+the stock firmware.
 
 ## How much faster
 
@@ -16,24 +15,17 @@ macOS, GBFlash v1.3, measured through FlashGBX against the same cartridges.
 
 | Operation | Stock L15 | Open-GBFlash | |
 |---|---|---|---|
-| GBA, read 32 MiB (Stream) | 99.58 s (329 KiB/s) | **36.40 s (900 KiB/s)** | 2.7x |
-| GBA, read 32 MiB (Single) | 103.87 s (315 KiB/s) ‡ | **42.02 s (780 KiB/s)** | 2.5x |
-| GBA, write 16 MiB | 237.53 s (69 KiB/s) | **152.22 s (108 KiB/s)** | 1.6x |
-| GBA Video (3D Memory), read 64 MiB | 271.10 s (242 KiB/s) | **78.40 s (836 KiB/s)** | 3.5x |
-| Game Boy, read 2 MiB | 7.54 s (272 KiB/s) | **3.06 s (669 KiB/s)** | 2.5x |
-| Game Boy, write 2 MiB | 33.90 s (60 KiB/s) | **25.66 s (80 KiB/s)** | 1.3x |
+| GBA, read 32 MiB (Stream) | 101.67 s (322 KiB/s) | **34.81 s (941 KiB/s)** | 2.9x |
+| GBA, read 32 MiB (Single) | 103.89 s (315 KiB/s) | **39.48 s (830 KiB/s)** | 2.6x |
+| GBA, write 16 MiB | 219.83 s (75 KiB/s) | **137.67 s (119 KiB/s)** | 1.6x |
+| GBA Video (3D Memory), read 64 MiB | 273.43 s (240 KiB/s) | **80.47 s (814 KiB/s)** | 3.4x |
+| Game Boy, read 2 MiB | 7.53 s (272 KiB/s) | **2.84 s (720 KiB/s)** | 2.7x |
+| Game Boy, write 2 MiB | 32.37 s (63 KiB/s) | **25.28 s (81 KiB/s)** | 1.3x |
 
 Reads are the best of three per firmware, and every dump of a cartridge came
 back byte-identical whichever firmware produced it.
 Writes were verified and wrote the same file over the same starting contents,
 timed once after an untimed priming write.
-
-Stock is measured through unmodified FlashGBX, which is what a stock user
-actually has. The patched host pins a stock device to the same read buffer, so
-the two agree: 7.54 s against 7.53 s on the Game Boy read above.
-
-‡ The Single row's stock figure was taken on the patched host rather than the
-unmodified one.
 
 ### The same cartridges on Windows
 
@@ -41,12 +33,12 @@ Windows 11, 32 cores, same device, same cartridges, same harness.
 
 | Operation | Stock L15 | Open-GBFlash | |
 |---|---|---|---|
-| GBA, read 32 MiB (Stream) | 47.47 s (690 KiB/s) | **36.62 s (895 KiB/s)** | 1.3x |
-| GBA, read 32 MiB (Single) | 78.30 s (418 KiB/s) ‡ | **42.15 s (777 KiB/s)** | 1.9x |
-| GBA, write 16 MiB | 197.55 s (83 KiB/s) | **153.72 s (107 KiB/s)** | 1.3x |
-| GBA Video (3D Memory), read 64 MiB | 137.75 s (476 KiB/s) | **80.60 s (813 KiB/s)** | 1.7x |
-| Game Boy, read 2 MiB | 4.74 s (432 KiB/s) | **3.49 s (586 KiB/s)** | 1.4x |
-| Game Boy, write 2 MiB | 28.87 s (71 KiB/s) | **25.17 s (81 KiB/s)** | 1.1x |
+| GBA, read 32 MiB (Stream) | 47.46 s (690 KiB/s) | **36.63 s (894 KiB/s)** | 1.3x |
+| GBA, read 32 MiB (Single) | 79.35 s (413 KiB/s) | **39.89 s (822 KiB/s)** | 2.0x |
+| GBA, write 16 MiB | 178.88 s (92 KiB/s) | **137.74 s (119 KiB/s)** | 1.3x |
+| GBA Video (3D Memory), read 64 MiB | 137.57 s (476 KiB/s) | **80.50 s (814 KiB/s)** | 1.7x |
+| Game Boy, read 2 MiB | 4.73 s (433 KiB/s) | **3.37 s (608 KiB/s)** | 1.4x |
+| Game Boy, write 2 MiB | 28.92 s (71 KiB/s) | **25.22 s (81 KiB/s)** | 1.1x |
 
 Every row is the same work as its macOS counterpart: same cartridges, same
 files, same dumps byte for byte.
@@ -56,18 +48,24 @@ Put the two GBA runs side by side, identical 32 MiB reads on both machines:
 
 | | stock, macOS / Windows | Open-GBFlash, macOS / Windows |
 |---|---|---|
-| read (Stream) | 99.58 s / 47.47 s | 36.40 s / 36.62 s |
-| read (Single) | 103.87 s / 78.30 s | 42.02 s / 42.15 s |
-| write 16 MiB | 237.53 s / 197.55 s | 152.22 s / 153.72 s |
+| read (Stream) | 101.67 s / 47.46 s | 34.81 s / 36.63 s |
+| read (Single) | 103.89 s / 79.35 s | 39.48 s / 39.89 s |
+| write 16 MiB | 219.83 s / 178.88 s | 137.67 s / 137.74 s |
+| GBA Video, read 64 MiB | 273.43 s / 137.57 s | 80.47 s / 80.50 s |
 
-This firmware lands within 1% of itself on both machines. Stock is 1.2x to 2.1x
-faster on Windows than on macOS. What limits this firmware is the USB link and
-the cartridge, which no computer can help with; what limits stock is how quickly
-the host turns commands around, and Windows is much better at that. Windows
-users start from a higher baseline, so they have less to gain.
+Stock is 1.2x to 2.1x faster on Windows than on macOS. This firmware is within
+1% of itself on the write, on GBA Video and on Single, and 5% apart on Stream,
+with macOS the faster of the two. What limits stock is how quickly the host
+turns commands around, and Windows is much better at that; what limits this
+firmware is mostly the USB link and the cartridge, which no computer can help
+with. Windows users start from a higher baseline, so they have less to gain.
 
-On macOS this firmware is worth 2.5x to 3.5x on reads. On Windows, 1.3x to
-1.9x. Quote whichever matches the machine you use.
+Not all of the host cost was out of reach. Keeping one read opcode outstanding
+took the macOS Stream read from 36.40 s to 34.81 s while Windows stayed where it
+was, which is why that row is now the one that differs.
+
+On macOS this firmware is worth 2.6x to 3.4x on reads. On Windows, 1.3x to
+2.0x. Quote whichever matches the machine you use.
 
 Reads gain the most. Writes gain less, because most of a write belongs to the
 cartridge rather than to either firmware: erasing a 2 MiB Game Boy cartridge is
@@ -78,9 +76,11 @@ Boy that is worth 1.3x on macOS and 1.1x on Windows.
 Two things worth knowing about the table:
 
 - **Stream is the fastest read method.** FlashGBX offers Single, MemCpy and
-  Stream for GBA. On stock the choice is worth about 6%; here it is worth 18%,
-  because the cartridge side got fast enough for the difference to show. Stream
-  is what the FlashGBX CLI already uses. In the GUI it is worth selecting.
+  Stream for GBA, and Stream wins on both firmwares and both hosts. Here it is
+  worth 13% on macOS and 9% on Windows over Single. On stock it depends on the
+  host: 2% on macOS, 67% on Windows, because a slow host hides the difference.
+  Stream is what the FlashGBX CLI already uses. In the GUI it is worth
+  selecting.
 - **Both firmwares wrote the same file over the same starting contents.**
   FlashGBX skips blocks that already match and blocks that are all 0xFF, so a
   write benchmark that is not set up carefully measures the skipping instead.
@@ -130,8 +130,9 @@ underneath.
   bank-switching waits were too short, and now give the cartridge at least as
   long as the official firmware does.
 - **Cartridge data goes straight out to USB.** Stock copies every byte into a
-  staging buffer on the way. Dropping that trip also freed the memory that made
-  larger transfers possible.
+  staging buffer on the way. Dropping that trip also freed 3 KB of SRAM, which
+  paid for a larger transfer size until that was measured and reverted; the
+  8 KiB shipped today fits without it.
 - **The host asks how much the device can send.** FlashGBX assumed 4 KiB. It
   asks this firmware and gets 8 KiB, so the same dump costs far fewer round
   trips. A stock device is left on the 4 KiB it always used.
@@ -144,9 +145,9 @@ underneath.
   on the wrong part of the stock write path, which left Game Boy ROM writes
   slower than stock. They are ahead of it now, without shortening any pulse the
   flash chip sees.
-- **GBA Video cartridges stop staging every page through memory.** That path kept
-  the copy long after the ordinary read paths lost it, and it is most of why
-  those cartridges dump several times faster.
+- **GBA Video cartridges stop staging every page through memory.** That path
+  kept the copy long after the ordinary read paths lost it. Dropping it is worth
+  1.5x on its own, against 3.4x for the whole GBA Video gain.
 - **No registration check and no speed limiting.** Neither exists in this
   firmware. There is nothing to satisfy and nothing to pass.
 
@@ -161,7 +162,7 @@ ships a finished `hw_GBFlash.py` at the root of this repository, which you copy
 over `FlashGBX/hw_GBFlash.py`, replacing the file that is there. Keep the
 original if you want to go back.
 
-Six things differ from the file it replaces:
+Nine things differ from the file it replaces.
 
 - **It offers this firmware in the updater at all.** The Firmware Updater gains
   a choice between the original firmware and Open-GBFlash, each read from its
@@ -193,10 +194,33 @@ Six things differ from the file it replaces:
   `SkipOpenFirmwareUpdate = enabled` in the `[General]` section of FlashGBX's
   `settings.ini`.
 
-None of it changes how cartridges are read or written. The same file works with
-the stock firmware, so there is no need to swap it back to use stock. The read
-buffer is the one thing that changes with the firmware: on a stock device this
-file keeps FlashGBX's own 4 KiB, on every platform.
+- **It keeps one ROM read opcode outstanding.** Upstream sends a read, waits for
+  the reply, then sends the next. This keeps the next one queued ahead of the
+  reply, and stops re-sending the transfer size and access mode on every call
+  when neither has changed. Engages at chunks of 0x1000 and above, so header,
+  CFI and detection reads keep upstream's cadence.
+- **It stops a GBA dump silently dropping to the Single read method.** FlashGBX
+  pairs a flashcart profile that enables pull-ups with a downgrade to Single.
+  During a ROM dump this keeps Stream. Write verification still takes Single,
+  and choosing Single from the menu still applies.
+- **It quiets the port after a command resync.** Without this a dump can shift
+  by one byte partway through and still be reported as complete. See the note
+  below.
+
+The same file works with the stock firmware, so there is no need to swap it back
+to use stock. Four things change with the firmware rather than the file: the
+read buffer, and the three overrides above. On a stock device the read buffer
+stays at FlashGBX's own 4 KiB on every platform, and the other three delegate to
+the file they replace.
+
+**About that one-byte shift.** `_try_write`'s resync writes `0x00` and reads the
+next byte as its answer. An ACK arriving between the flush and that read is
+taken instead, so the `0x00`'s ACK is read as the resent command's and the real
+one is left to be read as the first byte of the next transfer. It showed up once
+in fifteen 16 MiB dumps. FlashGBX reports the backup as complete; only a ROM
+checksum in its database catches it. The code is upstream's, so this affects
+every FlashGBX device family at `fw_ver` 12 and above, not only this one. If you
+have dumps from before this fix that you have not checksummed, re-dump them.
 
 ## Installing
 
@@ -398,9 +422,13 @@ firmware, and every write was verified.
 
 ### Not tested
 
-The cartridge protocol and the bus waveforms are the stock ones, so these should
-behave as they always did. They have simply never been in front of this
-firmware:
+The cartridge protocol is the stock one. The bus waveforms are not: several
+intervals ship narrower than stock, including the GBA /RD pulse at 11 cycles
+low against stock's 17, and /CS-high recovery at 36 cycles against stock's 80.
+Each was swept against a real cartridge and gated byte-for-byte against a stock
+dump, but only against the cartridges to hand. The ones below have never been in
+front of this firmware, and a cartridge slower than those is the case a shorter
+interval would break:
 
 - **Board revisions other than v1.3.** The installer accepts v1.0 to v1.3, but
   only v1.3 has been tested.

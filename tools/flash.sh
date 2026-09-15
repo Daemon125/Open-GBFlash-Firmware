@@ -29,12 +29,25 @@ if [ "${1:-}" = "--stock" ]; then
 elif [ "${1:-}" = "--image" ]; then
     IMAGE="${2:?usage: flash.sh --image <fw.bin>}"
     echo "  flashing image: $IMAGE"
+elif [ -n "${1:-}" ]; then
+    echo "  unrecognised argument: $1" >&2
+    echo "  usage: flash.sh [--image <fw.bin> | --stock]" >&2
+    echo "  No argument rebuilds at the defaults and flashes that." >&2
+    exit 1
 else
     # Plain `make', so a knob build made just before this is REBUILT AT THE
     # DEFAULTS and the knob image is discarded. Use --image to flash what you
     # just built. A whole day of A/B measurements was once taken against the
     # default image because of this.
     make --no-print-directory
+fi
+
+# Also before the handover: a missing or empty image strands the board in
+# update mode exactly as a missing updater does.
+if [ ! -s "$IMAGE" ]; then
+    echo "  missing or empty image: $IMAGE" >&2
+    echo "  Not touching the device." >&2
+    exit 1
 fi
 
 if command -v md5 >/dev/null 2>&1; then

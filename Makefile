@@ -54,7 +54,7 @@ ARCHFLAGS := -mcpu=cortex-m0 -mthumb
 
 # Below 1730592000 FlashGBX flags the firmware as unofficial and offers to
 # overwrite it on every connect. include/fw_config.h:28 #errors on it.
-FW_TIMESTAMP ?= 1789358934
+FW_TIMESTAMP ?= 1789512082
 
 # Must be 0. With echo on, the loopback pump drains the receive staging before
 # the protocol framer sees a byte: the device enumerates, mirrors what is sent
@@ -156,7 +156,117 @@ FW_TX_PIPELINE ?= 1
 # FW_RX_DBUF=0 must stay byte-identical to the tree without the switch.
 # NOT GATED on Windows, where host-side bulk OUT pacing differs:
 # tools/test_short_packet.py and a byte-exact ROM write there before the
+# Receive mirror of FW_TX_PIPELINE: clear RB_UIF_TRANSFER before the 64-byte
+# copy out of the OUT window, so the SIE can fill EP2's second receive window
+# while the CPU drains the first. RB_UEP2_BUF_MOD is already set in
+# usb_device_init (CH579 datasheet V2.1 p.87 Table 17-4: RX at UEP2_DMA+0
+# and +64); RB_UC_INT_BUSY auto-NAKs until that flag is cleared, which is what
+# makes the second window reachable at all.
+#
+# It re-enters the "USB receive lost one word per transfer" corruption and has
+# no runtime escape: compile-time #if only, bl_usb_ep2_dbuf is never cleared.
+# FW_RX_DBUF=0 must stay byte-identical to the tree without the switch.
+# NOT GATED on Windows, where host-side bulk OUT pacing differs:
+# tools/test_short_packet.py and a byte-exact ROM write there before the
 # default moves off 0.
+FW_RX_DBUF ?= 0
+
+# The two USB interrupt knobs below. The interrupt runs inside slack on every
+# wire-bound path, so shortening it moves no bytes there. Four rounds per arm,
+# both knobs against neither:
+#   pure transport  996.2 -> 997.9   +0.2%
+#   AGB Stream      992.3 -> 993.5   +0.1%
+#   AGB MemCpy      961.0 -> 960.8   -0.0%
+#   DMG read        964.7 -> 969.4   +0.5%
+#   AGB Single      795.2 -> 820.5   +3.2%, ahead in 100% of pairs
+# Single is the one path where the cartridge leaf, not the wire, is the limit,
+# so cycles the interrupt takes come straight off it. Nothing regresses: MemCpy
+# and the transport sit inside their noise bands.
+# GATED ON HARDWARE: 32 interleaved 2 MiB DMG dumps, 16 with both knobs on, all
+# byte-exact against the reference tools/bench/read_soak.py uses. The AGB gate
+# covers FW_USB_TX_TOG_SHADOW only; FW_USB_ISR_LEAN still needs one AGB
+# byte-exact dump.
+
+# Two things the USB interrupt did on every packet that it did not need to.
+# Receive credit depends only on ring space, which moves when an OUT packet is
+# delivered or bl_usb_rx() drains; updating it per interrupt costs a peripheral
+# read of R8_UEP2_CTRL. And pipelined staging is uniform, so a count of
+# outstanding full packets says what the ring said.
+# GATED ON HARDWARE: 420.4 -> 336.7 cycles per interrupt measured with SysTick,
+# -20%, over 3252 interrupts. Packet period 63.24 -> 62.91 us.
+#
+# Worth about 1%, and no more is available here. Padding the handler past its
+# release shows where the limit is: up to 7 us of added nops changes the period
+# by nothing measurable, 10 us costs 17%, 20 us costs 53%. The handler runs
+# inside slack, so shortening it buys back only what the period already shows.
+# The period is set by the wire transaction, bit stuffing and the host's token
+# cadence, none of which are the firmware's. Timed from the flag clear that
+# releases the SIE to the next completion: 63.48 us, against a whole period of
+# about 63. The firmware is not inside the loop that sets read throughput.
+#
+# Also measured and found not to matter, so that nobody spends another day on
+# them: reading R8_USB_INT_FG once instead of twice per interrupt (0 cycles, the
+# peripheral read is cheap); clearing RB_UC_INT_BUSY so the SIE stops answering
+# busy-NAK (no change, register verified 0x29 -> 0x21 at runtime); polled
+# instead of interrupt (worse, 965 against 983 KiB/s); and the host's read call
+# shape, from one 8 KiB read down to read(64) per packet (1% across all of it).
+# Bit stuffing is real and is not ours: 7.7 us a packet between all-zero and
+# all-one data, measured by making the device transmit chosen patterns.
+FW_USB_ISR_LEAN ?= 1
+
+# Track EP2's transmit window instead of reading its toggle out of
+# R8_UEP2_CTRL, and clear the transfer flag above the refill rather than below
+# it. The SIE cannot start the next transaction until that flag is cleared, so
+# the read was on the critical path; the refill that follows has a 50 us
+# transaction to finish inside. Needs FW_USB_ISR_LEAN's staging count.
+# GATED ON HARDWARE: the prediction was first run alongside the register for a
+# whole 16 MiB dump, 260096 windows, no disagreement. Then two further 16 MiB
+# dumps byte-exact against a checksum-verified reference. Critical path 4.47 ->
+# 3.69 us, packet period 63.24 -> 62.7 us.
+FW_USB_TX_TOG_SHADOW ?= 1
+# Receive credit depends only on ring space, which moves when an OUT packet is
+# delivered or bl_usb_rx() drains; updating it per interrupt costs a peripheral
+# read of R8_UEP2_CTRL. And pipelined staging is uniform, so a count of
+# outstanding full packets says what the ring said.
+# GATED ON HARDWARE: 420.4 -> 336.7 cycles per interrupt measured with SysTick,
+# -20%, over 3252 interrupts. Packet period 63.24 -> 62.91 us.
+#
+# Worth about 1%, and no more is available here. Padding the handler past its
+# release shows where the limit is: up to 7 us of added nops changes the period
+# by nothing measurable, 10 us costs 17%, 20 us costs 53%. The handler runs
+# inside slack, so shortening it buys back only what the period already shows.
+# The period is set by the wire transaction, bit stuffing and the host's token
+# cadence, none of which are the firmware's. Timed from the flag clear that
+# releases the SIE to the next completion: 63.48 us, against a whole period of
+# about 63. The firmware is not inside the loop that sets read throughput.
+#
+# Track EP2's transmit window instead of reading its toggle out of
+# R8_UEP2_CTRL, and clear the transfer flag above the refill rather than below
+# it. The SIE cannot start the next transaction until that flag is cleared, so
+# the read was on the critical path; the refill that follows has a 50 us
+# transaction to finish inside. Needs FW_USB_ISR_LEAN's staging count.
+# GATED ON HARDWARE: the prediction was first run alongside the register for a
+# whole 16 MiB dump, 260096 windows, no disagreement. Then two further 16 MiB
+# dumps byte-exact against a checksum-verified reference. Critical path 4.47 ->
+# 3.69 us, packet period 63.24 -> 62.7 us.
+# The interrupt runs inside slack on every wire-bound path, so shortening it
+# moves no bytes there. Four rounds per arm, both knobs against neither:
+#   pure transport  996.2 -> 997.9   +0.2%
+#   AGB Stream      992.3 -> 993.5   +0.1%
+#   AGB MemCpy      961.0 -> 960.8   -0.0%
+#   DMG read        964.7 -> 969.4   +0.5%
+#   AGB Single      795.2 -> 820.5   +3.2%, ahead in 100% of pairs
+# Single is the one path where the cartridge leaf, not the wire, is the limit,
+# so cycles the interrupt takes come straight off it. Nothing regresses: MemCpy
+# and the transport sit inside their noise bands.
+# GATED ON HARDWARE: 32 interleaved 2 MiB DMG dumps, 16 with both knobs on, all
+# byte-exact against the reference tools/bench/read_soak.py uses. The AGB gate
+# covers FW_USB_TX_TOG_SHADOW only, above; FW_USB_ISR_LEAN still needs one AGB
+# byte-exact dump.
+FW_USB_TX_TOG_SHADOW ?= 1
+
+FW_USB_ISR_LEAN ?= 1
+
 FW_RX_DBUF ?= 0
 
 # 3D Memory (GBA Video) mapper settle, in iterations of 27 nops. Stock spins
@@ -205,6 +315,16 @@ FW_AGB_WRITE_BURST ?= 1
 # terminators in a 128 KiB backup. No cartridge code, no bus intervals.
 # GATED ON HARDWARE: four 128 KiB save backups byte-identical to the =0 build.
 FW_SAVE_TX_DIRECT ?= 1
+
+# Let the AGB save read fill the next chunk while the endpoint drains the last,
+# as FW_DMG_TX_OVERLAP does for DMG ROM. Worth 500.8 -> 505.4 KiB/s and it
+# CORRUPTS THE READ: 1 is wrong and non-repeatable at every transfer size above
+# one step, correct only at 0x40 where the loop body runs once and the overlap
+# never engages. Draining is what keeps the USB interrupt out of
+# fw_cart_agb_sram_read; let bytes queue and it fires inside the leaf instead.
+# The command is cartridge bound at 598 KiB/s anyway, so the drain was never
+# most of its cost. Do not ship 1 without fixing the leaf.
+FW_SAVE_TX_OVERLAP ?= 0
 
 # Overlap the 3D Memory bus with its wire. It is the last read path that strobes
 # a whole 4096-byte page off the cartridge before the endpoint sees a byte; the
@@ -483,8 +603,10 @@ FW_DMG_TX_OVERLAP ?= 1
 
 # Publish into the transmit region every FW_DMG_PUB_GRAIN bytes during the
 # cartridge read rather than once per chunk at the end of it.
-# KiB/s at 40 MHz: off 945.5 / 946.5; on at grain 64 934.9, 128 952.7,
-# 256 955.1 / 952.0, 512 946.6, 1024 948.8. Ships grain 256.
+# 2 MiB dumps of a real cartridge, six per arm, interleaved by rounds:
+# off 887.4, grain 64 870.0, 128 902.1, 256 898.1. Do not drop to 64: the extra
+# leaf calls cost more than the shorter head of pipe saves. 128 and 256 are one
+# noise band apart. Ships grain 256.
 FW_DMG_READ_PUB ?= 1
 
 FW_DMG_PUB_GRAIN ?= 256
@@ -605,6 +727,8 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_AGB_FAST_BURST=$(FW_AGB_FAST_BURST) \
           -DFW_TX_PIPELINE=$(FW_TX_PIPELINE) \
           -DFW_RX_DBUF=$(FW_RX_DBUF) \
+          -DFW_USB_ISR_LEAN=$(FW_USB_ISR_LEAN) \
+          -DFW_USB_TX_TOG_SHADOW=$(FW_USB_TX_TOG_SHADOW) \
           -DFW_M3D_SETTLE_ITERS=$(FW_M3D_SETTLE_ITERS) \
           -DFW_CRC32_SLICE4=$(FW_CRC32_SLICE4) \
           -DFW_PROTO_FAST_COPY=$(FW_PROTO_FAST_COPY) \
@@ -640,6 +764,7 @@ CFLAGS := $(ARCHFLAGS) \
           -DFW_AGB_SKIP_FF=$(FW_AGB_SKIP_FF) \
           -DFW_AGB_WRITE_BURST=$(FW_AGB_WRITE_BURST) \
           -DFW_SAVE_TX_DIRECT=$(FW_SAVE_TX_DIRECT) \
+          -DFW_SAVE_TX_OVERLAP=$(FW_SAVE_TX_OVERLAP) \
           -DFW_M3D_TX_DIRECT=$(FW_M3D_TX_DIRECT) \
           -DFW_STREAM_MIDGROUP_POLL=$(FW_STREAM_MIDGROUP_POLL) \
           -DFW_AGB_LEAF=$(FW_AGB_LEAF) \

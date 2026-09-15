@@ -243,6 +243,18 @@ static USB_SHARED uint8_t tx_last_full;  /* last armed packet filled the endpoin
 
 /* rx_buf is a ring; tx_buf is linear and rewinds only when fully drained. */
 static uint8_t  rx_buf[BL_USB_RX_BUF_SIZE] __attribute__((aligned(4)));
+#if FW_USB_ISR_LEAN
+/* Pipelined windows awaiting completion. Each must hold a full direct packet;
+ * completion credits bl_usb_ep2_pkt_in bytes for it. */
+static USB_SHARED uint8_t tx_pipe_outstanding;
+#endif
+
+#if FW_USB_ISR_LEAN
+/* Credit depends only on ring space, so set this wherever a delivered packet
+ * consumes some; bl_usb_rx() frees space and updates credit on its own path. */
+static USB_SHARED uint8_t rx_credit_dirty;
+#endif
+
 /* Single producer/consumer: the handler writes rx_head, bl_usb_rx() rx_tail. */
 static USB_SHARED uint16_t rx_head, rx_tail;
 static uint8_t  tx_buf[BL_USB_TX_BUF_SIZE] __attribute__((aligned(4)));
@@ -536,6 +548,9 @@ static void rx_deliver_at(uint8_t off, uint32_t len)
 static void rx_deliver(uint32_t len)
 #endif
 {
+#if FW_USB_ISR_LEAN
+    rx_credit_dirty = 1u;
+#endif
     uint16_t space = rx_free();
 
     /* Clamp to the window, not to sizeof ep2_buf: 256 overruns into TX. */
@@ -579,6 +594,11 @@ static USB_SHARED uint16_t tx_dir_total;  /* region size, set by begin()       *
 
 
 #if FW_TX_PIPELINE
+#if FW_USB_TX_TOG_SHADOW
+static USB_SHARED uint8_t tx_tog_pred;
+static USB_SHARED uint8_t tx_tog_valid;
+#endif
+
 static USB_SHARED uint8_t tx_pipe_armed;  /* both windows hold valid bytes */
 
 /* Which staged packets belonged to the region: a CDC terminator, a reply header
@@ -619,6 +639,12 @@ static void tx_direct_reset(void)
 #if FW_TX_PIPELINE
     tx_pipe_armed = 0u;
     tx_pipe_engaged = 0u;
+#if FW_USB_TX_TOG_SHADOW
+    tx_tog_valid = 0u;
+#endif
+#if FW_USB_ISR_LEAN
+    tx_pipe_outstanding = 0u;
+#endif
     tx_dir_sent_n = 0u;
     tx_stage_head = 0u;
     tx_stage_tail = 0u;
@@ -689,14 +715,21 @@ static void tx_pump(void)
                 (m == (uint16_t)bl_usb_ep2_pkt_in) &&
                 (tx_direct_ready() >= (uint16_t)(2u * (uint32_t)bl_usb_ep2_pkt_in))) {
                 uint8_t first = ep2_tx_off();
+#if FW_USB_TX_TOG_SHADOW
+                tx_tog_pred = first; tx_tog_valid = 1u;
+#endif
                 uint8_t second = (first == EP2_DBUF_TX1_OFF) ? EP2_DBUF_TX0_OFF
                                                              : EP2_DBUF_TX1_OFF;
                 usb_copy(&ep2_buf[first], &tx_dir_base[tx_dir_pos], m);
                 usb_copy(&ep2_buf[second], &tx_dir_base[tx_dir_pos + m], m);
                 R8_UEP2_T_LEN = (uint8_t)m;
                 tx_dir_pos = (uint16_t)(tx_dir_pos + (uint16_t)(2u * m));
+#if FW_USB_ISR_LEAN
+                tx_pipe_outstanding = (uint8_t)(tx_pipe_outstanding + 2u);
+#else
                 tx_stage_push(m, 1u);
                 tx_stage_push(m, 1u);
+#endif
                 uep2_ctrl_rmw(MASK_UEP_T_RES, UEP_T_RES_ACK);
                 tx_armed = 1u;
                 tx_pipe_armed = 1u;
@@ -778,6 +811,12 @@ void bl_usb_tx_direct_begin(const uint8_t *base, uint16_t total)
     /* Symmetric with tx_direct_reset(); do not rely on end() always preceding. */
     tx_pipe_armed = 0u;
     tx_pipe_engaged = 0u;
+#if FW_USB_TX_TOG_SHADOW
+    tx_tog_valid = 0u;
+#endif
+#if FW_USB_ISR_LEAN
+    tx_pipe_outstanding = 0u;
+#endif
     tx_dir_sent_n = 0u;
     tx_stage_head = 0u;
     tx_stage_tail = 0u;
@@ -1299,7 +1338,14 @@ static void usb_pumps(void)
         tx_pump();
     }
 
+#if FW_USB_ISR_LEAN
+    if (rx_credit_dirty != 0u) {
+        rx_credit_dirty = 0u;
+        rx_credit_update();
+    }
+#else
     rx_credit_update();
+#endif
 }
 
 #if FW_USB_IRQ
@@ -1395,13 +1441,39 @@ void bl_usb_poll(void)
 #if FW_TX_PIPELINE
             /* Credit the packet only if it was the region's. Before any branch,
              * so the wind-down path credits it too. */
+#if FW_USB_ISR_LEAN
+            if (tx_pipe_outstanding != 0u) {
+                tx_pipe_outstanding--;
+                tx_dir_sent_n = (uint16_t)(tx_dir_sent_n
+                                           + (uint16_t)bl_usb_ep2_pkt_in);
+            } else {
+                tx_dir_sent_n = (uint16_t)(tx_dir_sent_n + tx_stage_pop());
+            }
+#else
             tx_dir_sent_n = (uint16_t)(tx_dir_sent_n + tx_stage_pop());
+#endif
 #endif
 #if FW_TX_PIPELINE
             /* The window the SIE sends next was staged last round: release first. */
             if (tx_pipe_armed != 0u) {
+#if FW_USB_TX_TOG_SHADOW
+                /* Tracks the freed window, the complement of ep2_tx_off().
+                 * Computed before the release: RB_UEP_T_TOG may flip after it,
+                 * and the refill then has one 50 us transaction to finish in. */
+                uint8_t freed;
+                uint16_t left;
+
+                if (tx_tog_valid != 0u) {
+                    freed = tx_tog_pred;
+                    tx_tog_pred = (tx_tog_pred == EP2_DBUF_TX1_OFF)
+                                  ? EP2_DBUF_TX0_OFF : EP2_DBUF_TX1_OFF;
+                } else {
+                    freed = ep2_tx_other();
+                }
+#else
                 uint8_t freed = ep2_tx_other();
                 uint16_t left;
+#endif
                 R8_USB_INT_FG = RB_UIF_TRANSFER;   /* release the bus */
                 pipe_cleared = 1u;
 
@@ -1413,7 +1485,11 @@ void bl_usb_poll(void)
                              (uint16_t)bl_usb_ep2_pkt_in);
                     tx_dir_pos = (uint16_t)(tx_dir_pos
                                             + (uint16_t)bl_usb_ep2_pkt_in);
+#if FW_USB_ISR_LEAN
+                    tx_pipe_outstanding++;
+#else
                     tx_stage_push((uint16_t)bl_usb_ep2_pkt_in, 1u);
+#endif
                 } else {
                     /* Tail short of a packet, plus the CDC ZLP: back to tx_pump(). */
                     tx_pipe_armed = 0u;

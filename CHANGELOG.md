@@ -1,5 +1,109 @@
 # Changelog
 
+## 1.2.0
+
+**A dump could come back corrupted and be reported as complete.** One in fifteen
+16 MiB dumps shifted by a byte partway through. If you have dumps taken with
+1.0.x or 1.1.0 that you have not checksummed, re-dump them. Every read path is
+also faster.
+
+macOS, against the figures 1.1.0 published:
+
+| Operation | 1.1.0 | 1.2.0 |
+|---|---|---|
+| GBA, read 32 MiB (Stream) | 900 KiB/s | **941 KiB/s** |
+| GBA, read 32 MiB (Single) | 780 KiB/s | **830 KiB/s** |
+| GBA, write 16 MiB | 108 KiB/s | **119 KiB/s** |
+| Game Boy, read 2 MiB | 669 KiB/s | **720 KiB/s** |
+| Game Boy, write 2 MiB | 80 KiB/s | **81 KiB/s** |
+| GBA Video (3D Memory), read 64 MiB | 836 KiB/s | 814 KiB/s |
+
+Both hosts, all six operations, stock against this firmware: see the README.
+Windows numbers moved less, because stock starts from a higher baseline there.
+
+### Upgrading from 1.1.0
+
+Copy `hw_GBFlash.py` over `FlashGBX/hw_GBFlash.py` as well as installing the
+firmware. The corruption fix is in that file, not in the firmware, so a device
+updated through the Firmware Updater alone still produces shifted dumps.
+
+### Fixed
+
+- **A ROM dump could shift by one byte partway through and still be reported as
+  complete.** `_try_write`'s resync writes `0x00` and reads the next byte as its
+  answer. An ACK arriving between the flush and that read is taken instead, so
+  the `0x00`'s ACK is read as the resent command's and the command's real ACK is
+  left to be read as the first byte of the next bulk transfer. Seen once in
+  fifteen 16 MiB dumps, on the stock read path as well as the pipelined one.
+  FlashGBX reports the backup complete; only a ROM checksum in its database
+  catches it. The fix quiets the port after the resync. This is upstream's code,
+  so it affects every FlashGBX device family at `fw_ver` 12 and above.
+- A GBA dump of a cartridge whose profile enables pull-ups dropped to the Single
+  read method and stayed there for the rest of the dump.
+- The 3D Memory read returned short on an odd trailing byte instead of padding
+  it, desynchronising every command after it.
+- The AGB read published on the host's step rather than the count the loop
+  advances by, leaving a whole chunk unpublished when the one did not divide the
+  other. Equal on every default.
+
+### Faster
+
+- **The host keeps one ROM read opcode outstanding.** Median 919.7 to 967.5
+  KiB/s over interleaved 16 MiB AGB dumps. Engages at chunks of 0x1000 and
+  above, so header, CFI and detection reads keep upstream's cadence.
+- The ROM read's transfer size and access mode are sent once instead of before
+  every chunk.
+- **Two per-packet jobs left the USB interrupt, and EP2's transmit window is
+  predicted rather than read back.** AGB Single 795.2 to 820.5 KiB/s, ahead in
+  100% of pairwise comparisons: it is the one read path the cartridge leaf
+  limits rather than the wire.
+- **Save reads stopped re-setting two registers that nothing in the loop
+  changes.** Worth 31% on AGB SRAM.
+- A dead register reload left the AGB leaf's deselect, and its /RD-high fixed
+  term came down from 12 cycles to 10.
+
+### Changed
+
+- `FW_USB_ISR_LEAN` and `FW_USB_TX_TOG_SHADOW` now default to 1.
+
+### Measurements
+
+- The 3D Memory row is 814 KiB/s on macOS and Windows alike, against the 836
+  KiB/s published since 1.0.0. That figure came from a build that matches no
+  released commit; every committed build measures 80.5 s on both hosts. Two
+  interleaved rounds against the cartridge split between the USB interrupt knobs
+  on and off, so they are not the difference.
+- 1.0.0 said the Single row's patched-host stock figure flatters this firmware
+  by about 3%. It does not. On the six rows both hosts can run, they
+  agree on a stock device to within 1.06%, and the patched host is the slower of
+  the two in five of them. The patched tree is needed for that row because
+  upstream's CLI hardcodes Stream, not because it changes what a stock device
+  does.
+- The USB handler runs inside slack. It is not what limits read throughput.
+- A save-read TX overlap knob corrupts the read. It ships off.
+- A DMG publish grain of 64 is slower than what ships.
+- A minimum chunk size on the pipelined read bought nothing.
+
+### Tooling
+
+- `tools/bench/` refuses to start without the read-method patch. Without it
+  every AGB read row measures Stream and the Single row is a duplicate under a
+  wrong label, with plausible numbers and matching dumps.
+- `tools/flash.sh` rejects a bare path argument. It used to rebuild at default
+  knobs instead, which has invalidated A/B measurements before.
+- The host tests fail if an upstream method this project copied changes.
+
+### Documentation
+
+- The "Not tested" section claimed the bus waveforms are stock. They are not:
+  the GBA /RD pulse ships at 11 cycles low against stock's 17, and /CS-high
+  recovery at 36 against stock's 80.
+- The host file is described as changing nothing about how cartridges are read.
+  Three of its overrides now change exactly that when this firmware is attached.
+- The dagger on the Single rows is gone. The patch it flagged is one line that
+  lets the CLI select a read method; with the variable unset it makes upstream's
+  own call.
+
 ## 1.1.0
 
 **Game Boy ROM writes are 20% faster.** Every dump this firmware produces is

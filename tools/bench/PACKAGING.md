@@ -18,6 +18,9 @@ To build the zip that goes to a test machine:
     cp tools/bench/hosts/*.py $PKG/hosts/
     cp hw_GBFlash.py $PKG/hosts/hw_GBFlash_patched.py
     cp -R <a FlashGBX tree> $PKG/flashgbx      # one with run.py at its root
+    (cd $PKG/flashgbx && \
+     patch -p1 --forward --fuzz=0 < <repo>/tools/flashgbx/gbflash_open_readmethod.patch && \
+     patch -p1 --forward --fuzz=0 < <repo>/tools/flashgbx/gbflash_open_writespeed.patch)
     cp ../fw/fw.bin $PKG/fw/stock_L15.bin
     cp build/fw.bin $PKG/fw/gbflash_open.bin
     cp ../ref/gbflash_unlocker/gbflash_serial_update.py $PKG/
@@ -25,6 +28,15 @@ To build the zip that goes to a test machine:
     find $PKG -name 'bootlogo_*.bin' -delete
     cp $PKG/hosts/hw_GBFlash_patched.py $PKG/flashgbx/FlashGBX/hw_GBFlash.py
     (cd $(dirname $PKG) && zip -qr gbflash-bench.zip $(basename $PKG))
+
+Those two patches are the ones that touch files other than hw_GBFlash.py, so
+copying the host file over cannot carry them. Without readmethod the CLI keeps
+its hardcoded SetAGBReadMethod(method=2), every AGB read row measures Stream,
+and the Single row is a duplicate under a wrong label: the numbers look
+plausible and the dumps still match, so nothing announces it. bench_suite.py
+refuses to start without it. Without writespeed the write rows measure the
+unpatched write path. The other four patches only touch hw_GBFlash.py, which
+the copy below replaces wholesale.
 
 hosts/hw_GBFlash_patched.py is a copy of the root hw_GBFlash.py, which is
 the one that ships to users. Keeping a second copy in tools/bench would let

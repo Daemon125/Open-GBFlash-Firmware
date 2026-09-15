@@ -398,6 +398,173 @@ class GbxDevice(LK_Device):
 			s += " (" + __("unregistered") + ")"
 		return s
 
+	def ReadROM(self, address, length, skip_init=False, max_length=64):
+		"""Upstream's ReadROM with one read opcode kept outstanding.
+
+		Most of this body is LK_Device.ReadROM's; the pipelining is the write
+		before its loop and the one inside it. host/test_upstream_drift.py fails
+		if upstream's changes.
+
+		The read opcodes carry no argument bytes and the device services its RX
+		ring while a reply is still streaming, so the opcode for the next region
+		is already in hand when the current one ends. Depth 2 is the whole gain;
+		deeper queues measure the same and only widen the recovery window.
+		"""
+		if not getattr(self, "OPEN_FW", False):
+			return LK_Device.ReadROM(self, address, length, skip_init, max_length)
+
+		max_length = min(max_length, self.MAX_BUFFER_READ)
+		num = -(-length // max_length)
+		dprint("Reading 0x{:X} bytes from cartridge ROM at 0x{:X} in {:d} iteration(s)".format(length, address, num))
+		if length > max_length: length = max_length
+
+		buffer = bytearray()
+		if not skip_init:
+			# Only ADDRESS changes between calls. _BackupROM reads DMG one bank
+			# per call (LK_Device.py:3003), so the other two cost a blocking
+			# round trip every 16 KiB for a value the device already holds.
+			# _set_fw_variable below drops the memo, so anything else that
+			# writes these makes the next call send them again; a stale memo
+			# costs a short read, which _BackupROM already retries.
+			memo = getattr(self, "_rom_var_memo", None)
+			if memo is None or memo[0] is not self.DEVICE:
+				memo = [self.DEVICE, None, None]
+			send_xfer = (memo[1] != length)
+			send_mode = (memo[2] != 1)
+			if send_xfer:
+				self._set_fw_variable("TRANSFER_SIZE", length)
+			if self.MODE == "DMG":
+				self._set_fw_variable("ADDRESS", address)
+				if send_mode:
+					self._set_fw_variable("DMG_ACCESS_MODE", 1) # MODE_ROM_READ
+			elif self.MODE == "AGB":
+				self._set_fw_variable("ADDRESS", address >> 1)
+			self._rom_var_memo = [self.DEVICE, length,
+								  1 if self.MODE == "DMG" else memo[2]]
+
+		if self.MODE == "DMG":
+			command = "DMG_CART_READ"
+		elif self.MODE == "AGB":
+			command = "AGB_CART_READ"
+		else:
+			raise NotImplementedError
+
+		cmd = self.DEVICE_CMD[command]
+		issued = 0
+		if num > 0:
+			self._write(cmd)
+			issued = 1
+
+		for n in range(0, num):
+			if issued < num:
+				self._write(cmd)
+				issued += 1
+			temp = self._read(length)
+			if temp is not False and isinstance(temp, int): temp = bytearray([temp])
+			if temp is False or len(temp) != length:
+				dprint("Error while trying to read 0x{:X} bytes from cartridge ROM at 0x{:X} in iteration {:d} of {:d} (response: {:s})".format(length, address, n, num, str(temp)))
+				# An opcode is still outstanding here, so a reply is still owed.
+				self.DEVICE.reset_output_buffer()
+				self._drain_outstanding()
+				return bytearray()
+			buffer += temp
+			if self.INFO["action"] in (self.ACTIONS["ROM_READ"], self.ACTIONS["SAVE_READ"], self.ACTIONS["ROM_WRITE_VERIFY"]) and not self.NO_PROG_UPDATE:
+				self.SetProgress({"action":"READ", "bytes_added":len(temp)})
+
+		# Every reply asked for has been read, so the port must be empty. A
+		# spare byte here is read as the caller's next ACK and shifts the rest
+		# of the dump by one, which only a ROM checksum would catch.
+		if self.DEVICE.in_waiting != 0:
+			dprint("ReadROM: {:d} unexpected byte(s) left after 0x{:X} at 0x{:X}".format(self.DEVICE.in_waiting, length * num, address))
+			self._drain_outstanding()
+			return bytearray()
+
+		return buffer
+
+	def SetAGBReadMethod(self, method):
+		"""Keep Stream through a ROM dump of an enable_pullups profile.
+
+		LK_Device.py:2925-2927 enables the pullups and drops to Single for the
+		whole dump, restoring only at :3232, so three returns in between leak
+		Single into the rest of the session. Single re-latches /CS every two
+		bytes against Stream's cart_latch of 128.
+
+		Only the automatic downgrade: INFO["action"] is ROM_READ only inside
+		_BackupROM_Worker, so a method the user picks from the menu still
+		applies. Gated on one cartridge, the AGB-E20-30 with S29GL256N10TFI01;
+		the other three names in fc_AGB_S29GL256.txt and all of fc_AGB_M29W640
+		are untested. See results/agb-read-method-downgrade.md.
+		"""
+		if (getattr(self, "OPEN_FW", False) and method == 0
+				and self.AGB_READ_METHOD == 2
+				and self.INFO.get("action") == self.ACTIONS["ROM_READ"]):
+			return
+		return LK_Device.SetAGBReadMethod(self, method)
+
+	def _set_fw_variable(self, key, value):
+		"""Forget what ReadROM remembers whenever anyone else sets these."""
+		if key in ("TRANSFER_SIZE", "DMG_ACCESS_MODE"):
+			self._rom_var_memo = None
+		return LK_Device._set_fw_variable(self, key, value)
+
+	def _try_write(self, data, retries=5):
+		"""Upstream's _try_write, with the port quieted after the resync.
+
+		Most of this body is LK_Device._try_write's; the fix sits inside its
+		loop. host/test_upstream_drift.py fails if upstream's changes.
+
+		The resync writes 0x00 and takes the next byte as its answer. An ACK
+		that lands between the reset_input_buffer() above it and that read is
+		taken instead; the 0x00's own ACK is then read as the re-sent command's,
+		and the command's real ACK is left to be read as the first byte of the
+		next bulk transfer, which shifts the rest of a ROM dump by one. Hits the
+		stock read path too. host/test_late_ack.py holds the case.
+		"""
+		if not getattr(self, "OPEN_FW", False):
+			return LK_Device._try_write(self, data, retries)
+
+		while retries > 0:
+			ack = self._write(data, wait=True)
+			if "from_user" in self.CANCEL_ARGS and self.CANCEL_ARGS["from_user"]:
+				return False
+			if ack is not False:
+				self.ERROR = False
+				self.CANCEL = False
+				self.CANCEL_ARGS = {}
+				return ack
+			retries -= 1
+			dprint("Retries left:", retries)
+
+			hp = 20
+			temp = 0
+			while temp not in (1, 2) and hp > 0:
+				self.DEVICE.reset_output_buffer()
+				self.DEVICE.reset_input_buffer()
+				self.DEVICE.write(b'\x00')
+				self.DEVICE.flush()
+				temp = self._read(1)
+				hp -= 1
+				dprint("Current response:", temp, ", HP:", hp)
+			self._drain_outstanding()
+		return False
+
+	def _drain_outstanding(self):
+		"""Discard whatever the device is still sending.
+
+		The deadline caps the stall per failed chunk; _BackupROM retries 20
+		times before giving up.
+		"""
+		quiet = 0
+		deadline = time.time() + 2.0
+		while quiet < 20 and time.time() < deadline:
+			if self.DEVICE.in_waiting > 0:
+				self.DEVICE.read(self.DEVICE.in_waiting)
+				quiet = 0
+			else:
+				quiet += 1
+				time.sleep(0.01)
+		self.DEVICE.reset_input_buffer()
+
 	def GetRegisterInformation(self):
 		text = __("Your GBFlash device reported a registration error, which means it may be an illegitimate clone.") + "<br><br>" + __("The device’s integrated piracy detection may limit the device in performance and functionality until proper registration. The FlashGBX software has no control over this.")
 		return text
