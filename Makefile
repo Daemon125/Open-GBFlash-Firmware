@@ -156,74 +156,8 @@ FW_TX_PIPELINE ?= 1
 # FW_RX_DBUF=0 must stay byte-identical to the tree without the switch.
 # NOT GATED on Windows, where host-side bulk OUT pacing differs:
 # tools/test_short_packet.py and a byte-exact ROM write there before the
-# Receive mirror of FW_TX_PIPELINE: clear RB_UIF_TRANSFER before the 64-byte
-# copy out of the OUT window, so the SIE can fill EP2's second receive window
-# while the CPU drains the first. RB_UEP2_BUF_MOD is already set in
-# usb_device_init (CH579 datasheet V2.1 p.87 Table 17-4: RX at UEP2_DMA+0
-# and +64); RB_UC_INT_BUSY auto-NAKs until that flag is cleared, which is what
-# makes the second window reachable at all.
-#
-# It re-enters the "USB receive lost one word per transfer" corruption and has
-# no runtime escape: compile-time #if only, bl_usb_ep2_dbuf is never cleared.
-# FW_RX_DBUF=0 must stay byte-identical to the tree without the switch.
-# NOT GATED on Windows, where host-side bulk OUT pacing differs:
-# tools/test_short_packet.py and a byte-exact ROM write there before the
 # default moves off 0.
-FW_RX_DBUF ?= 0
-
-# The two USB interrupt knobs below. The interrupt runs inside slack on every
-# wire-bound path, so shortening it moves no bytes there. Four rounds per arm,
-# both knobs against neither:
-#   pure transport  996.2 -> 997.9   +0.2%
-#   AGB Stream      992.3 -> 993.5   +0.1%
-#   AGB MemCpy      961.0 -> 960.8   -0.0%
-#   DMG read        964.7 -> 969.4   +0.5%
-#   AGB Single      795.2 -> 820.5   +3.2%, ahead in 100% of pairs
-# Single is the one path where the cartridge leaf, not the wire, is the limit,
-# so cycles the interrupt takes come straight off it. Nothing regresses: MemCpy
-# and the transport sit inside their noise bands.
-# GATED ON HARDWARE: 32 interleaved 2 MiB DMG dumps, 16 with both knobs on, all
-# byte-exact against the reference tools/bench/read_soak.py uses. The AGB gate
-# covers FW_USB_TX_TOG_SHADOW only; FW_USB_ISR_LEAN still needs one AGB
-# byte-exact dump.
-
 # Two things the USB interrupt did on every packet that it did not need to.
-# Receive credit depends only on ring space, which moves when an OUT packet is
-# delivered or bl_usb_rx() drains; updating it per interrupt costs a peripheral
-# read of R8_UEP2_CTRL. And pipelined staging is uniform, so a count of
-# outstanding full packets says what the ring said.
-# GATED ON HARDWARE: 420.4 -> 336.7 cycles per interrupt measured with SysTick,
-# -20%, over 3252 interrupts. Packet period 63.24 -> 62.91 us.
-#
-# Worth about 1%, and no more is available here. Padding the handler past its
-# release shows where the limit is: up to 7 us of added nops changes the period
-# by nothing measurable, 10 us costs 17%, 20 us costs 53%. The handler runs
-# inside slack, so shortening it buys back only what the period already shows.
-# The period is set by the wire transaction, bit stuffing and the host's token
-# cadence, none of which are the firmware's. Timed from the flag clear that
-# releases the SIE to the next completion: 63.48 us, against a whole period of
-# about 63. The firmware is not inside the loop that sets read throughput.
-#
-# Also measured and found not to matter, so that nobody spends another day on
-# them: reading R8_USB_INT_FG once instead of twice per interrupt (0 cycles, the
-# peripheral read is cheap); clearing RB_UC_INT_BUSY so the SIE stops answering
-# busy-NAK (no change, register verified 0x29 -> 0x21 at runtime); polled
-# instead of interrupt (worse, 965 against 983 KiB/s); and the host's read call
-# shape, from one 8 KiB read down to read(64) per packet (1% across all of it).
-# Bit stuffing is real and is not ours: 7.7 us a packet between all-zero and
-# all-one data, measured by making the device transmit chosen patterns.
-FW_USB_ISR_LEAN ?= 1
-
-# Track EP2's transmit window instead of reading its toggle out of
-# R8_UEP2_CTRL, and clear the transfer flag above the refill rather than below
-# it. The SIE cannot start the next transaction until that flag is cleared, so
-# the read was on the critical path; the refill that follows has a 50 us
-# transaction to finish inside. Needs FW_USB_ISR_LEAN's staging count.
-# GATED ON HARDWARE: the prediction was first run alongside the register for a
-# whole 16 MiB dump, 260096 windows, no disagreement. Then two further 16 MiB
-# dumps byte-exact against a checksum-verified reference. Critical path 4.47 ->
-# 3.69 us, packet period 63.24 -> 62.7 us.
-FW_USB_TX_TOG_SHADOW ?= 1
 # Receive credit depends only on ring space, which moves when an OUT packet is
 # delivered or bl_usb_rx() drains; updating it per interrupt costs a peripheral
 # read of R8_UEP2_CTRL. And pipelined staging is uniform, so a count of

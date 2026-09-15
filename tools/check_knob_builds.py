@@ -42,13 +42,26 @@ CONFLICTS = [
 
 
 def knobs():
+    """Each knob once. A name defined twice would build twice into one BUILD
+    directory, and the two makes race through the Makefile's `rm -f $(BUILD)/*.o'.
+    """
     text = open(os.path.join(ROOT, "Makefile"), encoding="utf-8").read()
-    out = []
+    out, seen, dupes = [], set(), []
     for m in re.finditer(r"^([A-Z][A-Z0-9_]*)\s*\?=\s*([01])\s*$", text, re.M):
         name, default = m.group(1), m.group(2)
         if name in SKIP:
             continue
+        if name in seen:
+            dupes.append(name)
+            continue
+        seen.add(name)
         out.append((name, default))
+    if dupes:
+        sys.exit("check_knob_builds: %s defined more than once in the Makefile; "
+                 "the second %s a no-op under ?= and splits this check across "
+                 "two builds of one directory"
+                 % (", ".join(sorted(set(dupes))),
+                    "is" if len(set(dupes)) == 1 else "are"))
     return out
 
 
