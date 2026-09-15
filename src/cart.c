@@ -582,8 +582,8 @@ void fw_cart_agb_read_leaf(uint32_t hwaddr    __attribute__((unused)),
         /* Pad to /CS high, outside the loop: the waveform never moves. */
         LEAF_RPT(AGB_LEAF_RDHI_NOPS)
 
-        /* Deselect. r4 is the PB_OUT value the strobe last wrote, so the
-         * reload it replaced was dead. `movs r3,#0xFF' is the spare cycle. 5c */
+        /* Deselect. r4 is the PB_OUT value the strobe last wrote.
+         * `movs r3,#0xFF' is the spare cycle.                        5c */
         "lsls  r3, r3, #1\n\t"          /* PB_CS, from PB_RD             */
         "orrs  r4, r3\n\t"
         "movs  r3, #0xFF\n\t"           /* stage PB_ADDR_HI for the latch*/
@@ -1490,9 +1490,8 @@ uint32_t fw_cart_agb_sram_read(uint32_t addr, uint8_t *out, uint32_t count)
 {
     uint32_t i;
 
-    /* /RD high, so the first PB_CLR below is a falling edge whatever the last
-     * caller left. PA_DIR is set here and not per byte: nothing in the loop
-     * changes it, and sram_program interleaves a write that does. */
+    /* Prologue, stock 0x65E6. /RD high, so the first PB_CLR below is a falling
+     * edge whatever the last caller left. */
     REG32(R32_PB_OUT) |= PB_RD;
     REG32(R32_PA_DIR) |= PA_AD_MASK;
 

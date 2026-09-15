@@ -9,8 +9,7 @@
 #include "timebase.h"
 #include "lk_glue.h"
 
-/* g_reply is FW_MAX_TRANSFER bytes; as an automatic it runs the stack into
- * .bss. */
+/* As an automatic, g_reply runs the stack into .bss. */
 /* BL_USB_ECHO=1 loops the receive path back and swallows BOOTLOADER_RESET. */
 #if !defined(BL_USB_ECHO) || BL_USB_ECHO != 0
 #error "BL_USB_ECHO must be defined as 0 for the firmware build. See the Makefile."
@@ -637,9 +636,8 @@ static void do_save_read(fw_state_t *st)
         off += want;
         bl_usb_tx_direct_publish((uint16_t)off);
 #if FW_SAVE_TX_OVERLAP
-        /* Priming poll only. Draining the chunk here costs the whole USB
-         * transfer on top of the whole save read; the epilogue below is what
-         * guarantees every byte leaves. */
+        /* Priming poll only; the epilogue drains. Draining the chunk here
+         * costs the whole USB transfer on top of the whole save read. */
         bl_usb_poll();
 #else
         /* One poll per packet: bl_usb_poll() services at most one IN. */
@@ -774,8 +772,7 @@ static void m3d_read_overlapped(fw_state_t *st)
         uint32_t want = (len - off > step) ? step : (len - off);
         want &= ~1u;
         if (want == 0u) {
-            /* One byte left of a committed transfer_size. The strobe moves
-             * halfwords, so pad rather than return short: a short reply
+            /* One byte left of a committed transfer_size. Pad: a short reply
              * desynchronises every later command. */
             g_reply[off] = 0xFFu;
             off += 1u;
@@ -1755,11 +1752,10 @@ that never returns. Pick one."
          * transfer first is slower, and so is raising `step' to the latch
          * size. */
 #if FW_TX_DIRECT
-        /* Publish on whichever is smaller, the poll budget or the chunk the
-         * loop advances by: a host-selected step that per_call does not divide
-         * otherwise leaves a whole chunk unpublished. Equal on every default.
-         * One bl_usb_poll() per `step' bytes still. With FW_USB_IRQ armed it
-         * leaves the SIE alone and is only the thread-mode heartbeat. */
+        /* A host-selected `step' that the loop's chunk does not divide leaves
+         * a whole chunk unpublished, so publish on the smaller of the two.
+         * One bl_usb_poll() per `step' bytes. With FW_USB_IRQ armed it leaves
+         * the SIE alone and is only the thread-mode heartbeat. */
         if ((off - sent) >= adv) {
             bl_usb_tx_direct_publish((uint16_t)off);
             while ((off - sent) >= step) {

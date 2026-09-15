@@ -3,8 +3,7 @@
 
 _BackupROM reads DMG one 0x4000 bank per call (LK_Device.py:3003), so upstream
 sends TRANSFER_SIZE, ADDRESS and DMG_ACCESS_MODE every 16 KiB. Only ADDRESS
-changes. Dropping the other two is worth 920 -> 952 KiB/s on the DMG command
-cadence; see results/dmg-variable-resend.md.
+changes. The other two are not re-sent; see results/dmg-variable-resend.md.
 
 Anything else that writes those variables must make the next call send them
 again, or a dump can run with a transfer size the device does not have.

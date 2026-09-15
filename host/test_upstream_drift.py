@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """hw_GBFlash.py carries copies of two LK_Device methods. Notice when they move.
 
-ReadROM and _try_write are overridden by reimplementation, not by delegation:
-the pipelining rewrites the read loop and the resync fix has to sit inside it.
-Roughly three quarters of each body is upstream's. If FlashGBX changes either
-one, our copies keep the old behaviour silently, and the first symptom is a bad
-dump. Fail here instead.
+ReadROM and _try_write are overridden by reimplementation, not by delegation.
+If FlashGBX changes either one, our copies keep the old behaviour silently, and
+the first symptom is a bad dump. Fail here instead.
 
-When this fails: diff the named method against our override, port whatever
-changed, then update the hash below in the same commit.
+Update the hash in the same commit as the port; alone it turns the check green
+over a stale copy.
 
 The other overrides delegate, so only their signatures matter.
 """

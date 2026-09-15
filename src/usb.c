@@ -244,16 +244,14 @@ static USB_SHARED uint8_t tx_last_full;  /* last armed packet filled the endpoin
 /* rx_buf is a ring; tx_buf is linear and rewinds only when fully drained. */
 static uint8_t  rx_buf[BL_USB_RX_BUF_SIZE] __attribute__((aligned(4)));
 #if FW_USB_ISR_LEAN
-/* Pipelined staging is uniform: every window holds a full direct packet, so a
- * count says as much as the ring and costs two volatile accesses less. */
+/* Pipelined windows awaiting completion. Each must hold a full direct packet;
+ * completion credits bl_usb_ep2_pkt_in bytes for it. */
 static USB_SHARED uint8_t tx_pipe_outstanding;
 #endif
 
 #if FW_USB_ISR_LEAN
-/* Receive credit depends only on ring space, and space moves in exactly two
- * places: a delivered OUT packet takes some, bl_usb_rx() returns some. Updating
- * it on every transfer interrupt costs a peripheral read of R8_UEP2_CTRL on
- * packets that cannot have changed it. */
+/* Credit depends only on ring space, so set this wherever a delivered packet
+ * consumes some; bl_usb_rx() frees space and updates credit on its own path. */
 static USB_SHARED uint8_t rx_credit_dirty;
 #endif
 
@@ -1459,13 +1457,9 @@ void bl_usb_poll(void)
             /* The window the SIE sends next was staged last round: release first. */
             if (tx_pipe_armed != 0u) {
 #if FW_USB_TX_TOG_SHADOW
-                /* The window alternates, so track it rather than reading the
-                 * toggle out of R8_UEP2_CTRL. Verified against the register
-                 * over a 16 MiB dump: 260096 predictions, no disagreement.
-                 * Knowing it without the read is what lets the release move
-                 * above the refill: the SIE cannot start the next transaction
-                 * until this flag is cleared, and the refill then has a 50 us
-                 * transaction to finish inside. */
+                /* Tracks the freed window, the complement of ep2_tx_off().
+                 * Computed before the release: RB_UEP_T_TOG may flip after it,
+                 * and the refill then has one 50 us transaction to finish in. */
                 uint8_t freed;
                 uint16_t left;
 

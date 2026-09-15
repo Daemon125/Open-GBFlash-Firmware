@@ -401,8 +401,9 @@ class GbxDevice(LK_Device):
 	def ReadROM(self, address, length, skip_init=False, max_length=64):
 		"""Upstream's ReadROM with one read opcode kept outstanding.
 
-		Most of this body is LK_Device.ReadROM's; the loop had to be owned to
-		pipeline it. host/test_upstream_drift.py fails if upstream's changes.
+		Most of this body is LK_Device.ReadROM's; the pipelining is the write
+		before its loop and the one inside it. host/test_upstream_drift.py fails
+		if upstream's changes.
 
 		The read opcodes carry no argument bytes and the device services its RX
 		ring while a reply is still streaming, so the opcode for the next region
@@ -490,7 +491,7 @@ class GbxDevice(LK_Device):
 
 		Only the automatic downgrade: INFO["action"] is ROM_READ only inside
 		_BackupROM_Worker, so a method the user picks from the menu still
-		applies. GATED ON ONE CARTRIDGE, the AGB-E20-30 with S29GL256N10TFI01;
+		applies. Gated on one cartridge, the AGB-E20-30 with S29GL256N10TFI01;
 		the other three names in fc_AGB_S29GL256.txt and all of fc_AGB_M29W640
 		are untested. See results/agb-read-method-downgrade.md.
 		"""
@@ -501,11 +502,7 @@ class GbxDevice(LK_Device):
 		return LK_Device.SetAGBReadMethod(self, method)
 
 	def _set_fw_variable(self, key, value):
-		"""Forget what ReadROM remembers whenever anyone else sets these.
-
-		Unguarded by OPEN_FW on purpose: it only clears a memo that the guarded
-		ReadROM reads, and always delegates, so stock firmware sees upstream.
-		"""
+		"""Forget what ReadROM remembers whenever anyone else sets these."""
 		if key in ("TRANSFER_SIZE", "DMG_ACCESS_MODE"):
 			self._rom_var_memo = None
 		return LK_Device._set_fw_variable(self, key, value)
@@ -520,9 +517,8 @@ class GbxDevice(LK_Device):
 		that lands between the reset_input_buffer() above it and that read is
 		taken instead; the 0x00's own ACK is then read as the re-sent command's,
 		and the command's real ACK is left to be read as the first byte of the
-		next bulk transfer, which shifts the rest of a ROM dump by one. Measured
-		once in 15 sixteen-megabyte dumps, on the stock read path as well as the
-		pipelined one. host/test_late_ack.py holds the case.
+		next bulk transfer, which shifts the rest of a ROM dump by one. Hits the
+		stock read path too. host/test_late_ack.py holds the case.
 		"""
 		if not getattr(self, "OPEN_FW", False):
 			return LK_Device._try_write(self, data, retries)

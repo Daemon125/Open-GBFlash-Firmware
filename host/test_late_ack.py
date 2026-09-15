@@ -5,8 +5,8 @@ Upstream's _try_write flushes the input buffer, writes 0x00 and takes the next
 byte as its answer. An ACK still in flight lands after that flush, is taken for
 the 0x00's answer, and the 0x00's own ACK is then read as the re-sent command's.
 The command's real ACK is left over and is read as the first byte of the next
-bulk transfer, which shifts the rest of a ROM dump by one byte. Measured once
-in 15 sixteen-megabyte dumps; see results/rom-dump-byte-shift.md.
+bulk transfer, which shifts the rest of a ROM dump by one byte; see
+results/rom-dump-byte-shift.md.
 """
 import os, sys, time
 
@@ -24,8 +24,7 @@ class FakePort:
     It lands in the one window nothing flushes: after the resync loop's
     reset_input_buffer() and before the read that follows its 0x00. _read's own
     error path already drains to quiet, so an ACK late by any lesser amount is
-    discarded harmlessly and there is no bug to see. Releasing it on the 0x00
-    write is that window, expressed without depending on wall-clock timing.
+    discarded harmlessly and there is no bug to see.
     """
 
     def __init__(self):
@@ -109,8 +108,7 @@ def main():
         print("  [FAIL] the override left a byte on the wire")
         fails += 1
     # OPEN_FW False delegates to LK_Device._try_write, so this is upstream's
-    # behaviour on a concrete instance. The test fails if the fake port stops
-    # reproducing the race it is guarding against.
+    # behaviour on a concrete instance.
     if run(GbxDevice, "upstream fallback", open_fw=False) == 0:
         print("  [FAIL] the fake port no longer reproduces the race")
         fails += 1
