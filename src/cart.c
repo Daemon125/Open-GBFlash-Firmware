@@ -345,9 +345,9 @@ is off. Build FW_AGB_LEAF=1 with FW_AGB_FAST_BURST=1, or not at all."
 #define FW_AGB_LEAF_CSHI_CYCLES     36
 #endif
 #ifndef FW_AGB_LEAF_RDHI_CYCLES
-/* 12 is the leaf's own cost, 49 what the three-call path leaves. Not a flat
- * 12: FW_AGB_RD_HI_NOPS sits inside this region, so the floor moves with it. */
-#define FW_AGB_LEAF_RDHI_CYCLES     (12 + FW_AGB_RD_HI_NOPS)
+/* 10 is the leaf's own cost, 49 what the three-call path leaves. Not a flat
+ * 10: FW_AGB_RD_HI_NOPS sits inside this region, so the floor moves with it. */
+#define FW_AGB_LEAF_RDHI_CYCLES     (10 + FW_AGB_RD_HI_NOPS)
 #endif
 
 /* Pad emitted is (wanted - fixed); unpadded the leaf costs ADDR 13, SETTLE 20,
@@ -358,7 +358,7 @@ is off. Build FW_AGB_LEAF=1 with FW_AGB_FAST_BURST=1, or not at all."
 /* `bne 1b' buys a cycle of CSHI but puts the whole group body inside the
  * branch's +-254-byte reach; over budget it is `beq 4f' + `b 1b', 37/41. */
 #define AGB_LEAF_CSHI_NOPS_BNE  (FW_AGB_LEAF_CSHI_CYCLES - 36 - AGB_LEAF_ADDR_NOPS)
-#define AGB_LEAF_RDHI_NOPS      (FW_AGB_LEAF_RDHI_CYCLES - 12 - FW_AGB_RD_HI_NOPS)
+#define AGB_LEAF_RDHI_NOPS      (FW_AGB_LEAF_RDHI_CYCLES - 10 - FW_AGB_RD_HI_NOPS)
 /* Two /RD-low nops carry `adds r6,#1' and `subs r2,#1', one cycle for one. */
 #define AGB_LEAF_RD_LO_FILL     (FW_AGB_RD_LO_NOPS - 2)
 
@@ -582,9 +582,9 @@ void fw_cart_agb_read_leaf(uint32_t hwaddr    __attribute__((unused)),
         /* Pad to /CS high, outside the loop: the waveform never moves. */
         LEAF_RPT(AGB_LEAF_RDHI_NOPS)
 
-        /* Deselect, verbatim. `movs r3,#0xFF' is the spare cycle.     7c */
+        /* Deselect. r4 is the PB_OUT value the strobe last wrote, so the
+         * reload it replaced was dead. `movs r3,#0xFF' is the spare cycle. 5c */
         "lsls  r3, r3, #1\n\t"          /* PB_CS, from PB_RD             */
-        "ldr   r4, [r0, #40]\n\t"
         "orrs  r4, r3\n\t"
         "movs  r3, #0xFF\n\t"           /* stage PB_ADDR_HI for the latch*/
         "str   r4, [r0, #40]\n\t"       /* PB_OUT |= PB_CS ==> /CS HIGH  */
