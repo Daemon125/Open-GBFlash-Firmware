@@ -774,7 +774,13 @@ static void m3d_read_overlapped(fw_state_t *st)
         uint32_t want = (len - off > step) ? step : (len - off);
         want &= ~1u;
         if (want == 0u) {
-            break;                      /* odd tail: the reader would drop it */
+            /* One byte left of a committed transfer_size. The strobe moves
+             * halfwords, so pad rather than return short: a short reply
+             * desynchronises every later command. */
+            g_reply[off] = 0xFFu;
+            off += 1u;
+            bl_usb_tx_direct_publish((uint16_t)off);
+            break;
         }
         (void)fw_cart_agb_3d_read(&g_reply[off], want);
         off += want;
@@ -1635,6 +1641,7 @@ static void do_cart_read(fw_state_t *st)
 
     uint32_t off = 0u;
     uint32_t sent = 0u;
+    uint32_t adv;                       /* bytes the loop below advances by */
 
 
 #if FW_AGB_LEAF
@@ -1668,6 +1675,8 @@ that never returns. Pick one."
         }
     }
 
+    adv = (step < per_call) ? step : per_call;
+
     while (off < len) {
         uint32_t chunk = len - off;
         uint32_t hw;
@@ -1689,6 +1698,8 @@ that never returns. Pick one."
         }
         off += chunk;
 #else
+    adv = (step < latch) ? step : latch;
+
     while (off < len) {
         uint32_t grp = len - off;
         uint32_t g = 0u;
@@ -1744,9 +1755,12 @@ that never returns. Pick one."
          * transfer first is slower, and so is raising `step' to the latch
          * size. */
 #if FW_TX_DIRECT
-        /* One bl_usb_poll() per `step' bytes. With FW_USB_IRQ armed it leaves
-         * the SIE alone and is only the thread-mode heartbeat. */
-        if ((off - sent) >= step) {
+        /* Publish on whichever is smaller, the poll budget or the chunk the
+         * loop advances by: a host-selected step that per_call does not divide
+         * otherwise leaves a whole chunk unpublished. Equal on every default.
+         * One bl_usb_poll() per `step' bytes still. With FW_USB_IRQ armed it
+         * leaves the SIE alone and is only the thread-mode heartbeat. */
+        if ((off - sent) >= adv) {
             bl_usb_tx_direct_publish((uint16_t)off);
             while ((off - sent) >= step) {
                 bl_usb_poll();
