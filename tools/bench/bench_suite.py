@@ -76,6 +76,30 @@ DEPS = [("serial", "pyserial"), ("dateutil", "python-dateutil"),
         ("PIL", "Pillow"), ("packaging", "packaging")]
 
 
+def check_read_method_hook():
+    """The AGB method rows are meaningless without the readmethod patch.
+
+    FlashGBX_CLI hardcodes SetAGBReadMethod(method=2). Without
+    gbflash_open_readmethod.patch the GBFLASH_AGB_READ_METHOD this suite sets
+    is ignored, every AGB row runs at Stream, and the Single row is a duplicate
+    under a wrong label. That is silent: the numbers look plausible and the
+    dumps match. Fail here instead.
+    """
+    cli = os.path.join(FGBX, "FlashGBX", "FlashGBX_CLI.py")
+    try:
+        with open(cli, "r", encoding="utf-8", errors="replace") as f:
+            src = f.read()
+    except OSError as e:
+        sys.exit("  cannot read %s: %s" % (cli, e))
+    if "GBFLASH_AGB_READ_METHOD" in src:
+        return
+    sys.exit(
+        "  %s does not honour GBFLASH_AGB_READ_METHOD.\n"
+        "  Apply tools/flashgbx/gbflash_open_readmethod.patch to the bundled\n"
+        "  FlashGBX tree, or every AGB read row will measure Stream.\n"
+        "  See tools/bench/PACKAGING.md." % cli)
+
+
 def check_flashgbx_runs():
     """Import FlashGBX's CLI in a child interpreter before touching anything.
 
@@ -680,6 +704,7 @@ def main():
 
     os.makedirs(RESULTS, exist_ok=True)
     check_flashgbx_runs()
+    check_read_method_hook()
     drop_bootlogo()
     # A previous run's report left on disk reads as this run's result.
     for stale in os.listdir(RESULTS):
