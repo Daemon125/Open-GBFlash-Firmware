@@ -1490,14 +1490,15 @@ uint32_t fw_cart_agb_sram_read(uint32_t addr, uint8_t *out, uint32_t count)
 {
     uint32_t i;
 
-    /* Prologue, stock 0x65E6; the loop raises /RD again per byte. */
-    REG32(R32_PB_CLR) = PB_RD;
+    /* /RD high, so the first PB_CLR below is a falling edge whatever the last
+     * caller left. PA_DIR is set here and not per byte: nothing in the loop
+     * changes it, and sram_program interleaves a write that does. */
+    REG32(R32_PB_OUT) |= PB_RD;
+    REG32(R32_PA_DIR) |= PA_AD_MASK;
 
     for (i = 0; i < count; i++) {
         uint32_t a = (addr + i) & 0xFFFFu;
 
-        REG32(R32_PB_OUT) |= PB_RD;
-        REG32(R32_PA_DIR) |= PA_AD_MASK;
         REG32(R32_PA_OUT) = a;
         REG32(R32_PB_CLR) = PB_CS2;         /* select the save chip         */
         REG32(R32_PB_CLR) = PB_RD;
