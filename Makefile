@@ -54,7 +54,7 @@ ARCHFLAGS := -mcpu=cortex-m0 -mthumb
 
 # Below 1730592000 FlashGBX flags the firmware as unofficial and offers to
 # overwrite it on every connect. include/fw_config.h:28 #errors on it.
-FW_TIMESTAMP ?= 1789358934
+FW_TIMESTAMP ?= 1789512082
 
 # Must be 0. With echo on, the loopback pump drains the receive staging before
 # the protocol framer sees a byte: the device enumerates, mirrors what is sent
